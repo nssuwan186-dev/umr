@@ -1,6 +1,6 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
 
 import { ManagerError } from "../errors";
 import { parseGGUF } from "../gguf";

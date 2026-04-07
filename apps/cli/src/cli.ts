@@ -177,9 +177,20 @@ function createStreamSink(
 }
 
 class CliProgressReporter {
-  constructor(private readonly write: (line: string) => void) {}
+  constructor(
+    private readonly write: (line: string) => void,
+    private enabled = false,
+  ) {}
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
 
   emit(event: ProgressEvent): void {
+    if (!this.enabled) {
+      return;
+    }
+
     if (event.level === "warning") {
       this.write(`warn: ${event.message}`);
       return;
@@ -293,6 +304,10 @@ async function confirmHFInstall(
   });
 }
 
+function hasVerboseFlag(argv: string[]): boolean {
+  return argv.includes("--verbose") || argv.includes("-v");
+}
+
 export async function runCli(
   argv: string[],
   options?: {
@@ -303,6 +318,7 @@ export async function runCli(
     stderrRaw?: (chunk: string) => void;
     interactive?: boolean;
     prompts?: PromptClient;
+    verbose?: boolean;
   },
 ): Promise<number> {
   const manager = options?.manager ?? createDefaultVMR();
@@ -316,7 +332,10 @@ export async function runCli(
     options?.stderr ? stderr : undefined,
     options?.stderrRaw ?? ((chunk: string) => process.stderr.write(chunk)),
   );
-  const reporter = new CliProgressReporter(stderr);
+  const reporter = new CliProgressReporter(
+    stderr,
+    options?.verbose ?? hasVerboseFlag(argv),
+  );
   const streamSink = createStreamSink(stderrRaw, stdoutRaw);
   const interactive =
     options?.interactive ??
@@ -327,6 +346,7 @@ export async function runCli(
   program
     .name("vmr")
     .description("Virtual Model Registry")
+    .option("-v, --verbose", "Show internal progress steps")
     .showHelpAfterError()
     .showSuggestionAfterError()
     .configureOutput({
@@ -334,6 +354,14 @@ export async function runCli(
       writeErr: (chunk) => stderrRaw.write(chunk),
     })
     .exitOverride();
+
+  program.hook("preAction", (command) => {
+    const verbose =
+      command.optsWithGlobals<{ verbose?: boolean }>().verbose ??
+      options?.verbose ??
+      false;
+    reporter.setEnabled(verbose);
+  });
 
   program
     .command("add")

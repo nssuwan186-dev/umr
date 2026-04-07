@@ -136,7 +136,7 @@ test("show --path prints only the model entry path", async () => {
   expect(lines).toEqual(["/tmp/model-root/tiny.gguf"]);
 });
 
-test("add local path emits progress to stderr while keeping final output on stdout", async () => {
+test("add local path stays quiet by default while keeping final output on stdout", async () => {
   const manager = createFakeManager();
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
@@ -152,13 +152,28 @@ test("add local path emits progress to stderr while keeping final output on stdo
   expect(manager.calls).toEqual([
     { kind: "path", input: { path: "/tmp/source.gguf" } },
   ]);
-  expect(stderrLines).toEqual([
-    "-> Resolving source",
-    "-> Hashing resolved model members",
-  ]);
+  expect(stderrLines).toEqual([]);
   expect(stdoutLines).toEqual([
     "tracked: tiny-model (m_deadbeefdeadbeef)",
     "/tmp/model-root/tiny.gguf",
+  ]);
+});
+
+test("add local path emits reporter lines with --verbose", async () => {
+  const manager = createFakeManager();
+  const stderrLines: string[] = [];
+  const code = await runCli(["--verbose", "add", "/tmp/source.gguf"], {
+    manager: manager as never,
+    stdout: () => {},
+    stderr: (line) => stderrLines.push(line),
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stderrLines).toEqual([
+    "-> Resolving source",
+    "-> Hashing resolved model members",
   ]);
 });
 

@@ -50,11 +50,9 @@ test("run still buffers output without requiring stream callbacks", async () => 
 
 test("runStreaming supports inherited stdio for terminal-owned commands", async () => {
   const runner = new BunCommandRunner();
-  const result = await runner.runStreaming(
-    "bun",
-    ["-e", 'process.exit(0);'],
-    { stdio: "inherit" },
-  );
+  const result = await runner.runStreaming("bun", ["-e", "process.exit(0);"], {
+    stdio: "inherit",
+  });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
