@@ -1,3 +1,7 @@
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+
 import { ManagerError } from "../errors";
 import { parseGGUF } from "../gguf";
 import { emitInfo } from "../progress";
@@ -163,46 +167,60 @@ print(json.dumps({
       `Fetching ${selectedFile} from the Hugging Face cache`,
     );
     const python = await resolvePythonCommand(this.runner);
-    const download = await this.runner.runStreaming(
-      python,
-      [
-        "-c",
-        `
+    const tempDir = await mkdtemp(path.join(tmpdir(), "vmr-hf-download-"));
+    const outputPath = path.join(tempDir, "result.json");
+    let downloadPath: string;
+    try {
+      const download = await this.runner.runStreaming(
+        python,
+        [
+          "-c",
+          `
 import json
 import sys
 from huggingface_hub import hf_hub_download
 repo = sys.argv[1]
 filename = sys.argv[2]
 revision = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != "__none__" else None
+output_path = sys.argv[4]
 path = hf_hub_download(repo, filename, revision=revision)
-print(json.dumps({"path": path}), flush=True)
+with open(output_path, "w", encoding="utf-8") as handle:
+    json.dump({"path": path}, handle)
       `.trim(),
-        input.repo,
-        selectedFile,
-        inspection.resolvedRevision,
-      ],
-      {
-        onStderrChunk: async (chunk) => {
-          await context?.streamSink?.stderr?.(chunk);
+          input.repo,
+          selectedFile,
+          inspection.resolvedRevision,
+          outputPath,
+        ],
+        {
+          stdio: "inherit",
         },
-      },
-    );
-    let downloadPath: string;
-    try {
-      downloadPath = (JSON.parse(download.stdout.trim()) as { path: string })
-        .path;
-    } catch (error) {
-      throw new ManagerError("Failed to parse Hugging Face download output", {
+      );
+      if (download.exitCode !== 0) {
+        throw new ManagerError("Failed to download from Hugging Face", {
+          code: "hf-download-failed",
+          exitCode: 1,
+        });
+      }
+
+      try {
+        downloadPath = (
+          JSON.parse(await readFile(outputPath, "utf8")) as { path: string }
+        ).path;
+      } catch (error) {
+        throw new ManagerError("Failed to parse Hugging Face download output", {
+          code: "hf-json",
+          exitCode: 1,
+          cause: error,
+        });
+      }
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+    if (!downloadPath) {
+      throw new ManagerError("Failed to determine Hugging Face download path", {
         code: "hf-json",
         exitCode: 1,
-        cause: error,
-      });
-    }
-    if (download.exitCode !== 0) {
-      throw new ManagerError("Failed to download from Hugging Face", {
-        code: "hf-download-failed",
-        exitCode: 1,
-        cause: download.stderr || download.stdout,
       });
     }
 

@@ -18,6 +18,7 @@ export interface CommandRunOptions {
 export interface CommandStreamOptions extends CommandRunOptions {
   onStdoutChunk?: (chunk: string) => void | Promise<void>;
   onStderrChunk?: (chunk: string) => void | Promise<void>;
+  stdio?: "pipe" | "inherit";
 }
 
 export interface CommandRunner {
@@ -84,6 +85,26 @@ export class BunCommandRunner implements CommandRunner {
     args: string[] = [],
     options?: CommandStreamOptions,
   ): Promise<CommandResult> {
+    if (options?.stdio === "inherit") {
+      const proc = Bun.spawn([command, ...args], {
+        cwd: options?.cwd,
+        env: {
+          ...process.env,
+          ...options?.env,
+        },
+        stdin: "inherit",
+        stderr: "inherit",
+        stdout: "inherit",
+      });
+
+      const exitCode = await proc.exited;
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode,
+      };
+    }
+
     const proc = Bun.spawn([command, ...args], {
       cwd: options?.cwd,
       env: {
