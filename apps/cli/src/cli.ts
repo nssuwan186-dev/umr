@@ -21,6 +21,17 @@ interface PromptOption {
   hint?: string;
 }
 
+type HFSelectionState =
+  | "already-added-to-vmr"
+  | "available-locally-in-hf"
+  | "download-required";
+
+interface HFSelectableFile {
+  file: string;
+  state: HFSelectionState;
+  trackedModel?: ModelDetails;
+}
+
 interface PromptClient {
   confirm(input: { message: string }): Promise<boolean>;
   select(input: {
@@ -57,8 +68,10 @@ function formatRegistrations(model: ModelDetails): string {
     .join("\n");
 }
 
-function formatGGUFFiles(files: string[]): string {
-  return files.map((file) => `  - ${file}`).join("\n");
+function formatGGUFFiles(files: HFSelectableFile[]): string {
+  return files
+    .map((file) => `  - ${file.file} (${formatHFSelectionState(file.state)})`)
+    .join("\n");
 }
 
 function printCheck(result: CheckResult, write: (line: string) => void): void {
@@ -205,6 +218,50 @@ class CliProgressReporter {
   }
 }
 
+function formatHFSelectionState(state: HFSelectionState): string {
+  switch (state) {
+    case "already-added-to-vmr":
+      return "Already Added to VMR";
+    case "available-locally-in-hf":
+      return "Available Locally in HF";
+    case "download-required":
+      return "Download Required";
+  }
+}
+
+function getHFSelectableFiles(
+  manager: VirtualModelRegistry,
+  repo: string,
+  inspection: Awaited<ReturnType<VirtualModelRegistry["inspectHFSource"]>>,
+): HFSelectableFile[] {
+  return inspection.ggufFiles.map((file) => {
+    const trackedModel = manager.findTrackedSource("hf", {
+      repo,
+      revision: inspection.resolvedRevision,
+      file,
+    });
+    if (trackedModel) {
+      return {
+        file,
+        state: "already-added-to-vmr",
+        trackedModel,
+      };
+    }
+
+    if (inspection.cachedFiles.includes(file)) {
+      return {
+        file,
+        state: "available-locally-in-hf",
+      };
+    }
+
+    return {
+      file,
+      state: "download-required",
+    };
+  });
+}
+
 async function resolveHFFileSelection(
   manager: VirtualModelRegistry,
   repo: string,
@@ -213,16 +270,24 @@ async function resolveHFFileSelection(
   interactive: boolean,
   prompts: PromptClient,
   reporter: CliProgressReporter,
-): Promise<{ file: string; resolvedRevision: string }> {
+): Promise<{
+  file: string;
+  resolvedRevision: string;
+  selected: HFSelectableFile;
+}> {
   const inspection = await manager.inspectHFSource(
     { repo, revision },
     { reporter },
   );
+  const selectableFiles = getHFSelectableFiles(manager, repo, inspection);
 
   if (requestedFile) {
-    if (!inspection.ggufFiles.includes(requestedFile)) {
+    const selected = selectableFiles.find(
+      (file) => file.file === requestedFile,
+    );
+    if (!selected) {
       throw new ManagerError(
-        `GGUF file not found in ${repo}: ${requestedFile}\nAvailable GGUF files:\n${formatGGUFFiles(inspection.ggufFiles)}`,
+        `GGUF file not found in ${repo}: ${requestedFile}\nAvailable GGUF files:\n${formatGGUFFiles(selectableFiles)}`,
         {
           code: "hf-missing-file",
           exitCode: 2,
@@ -233,19 +298,21 @@ async function resolveHFFileSelection(
     return {
       file: requestedFile,
       resolvedRevision: inspection.resolvedRevision,
+      selected,
     };
   }
 
-  if (inspection.ggufFiles.length === 1) {
+  if (selectableFiles.length === 1) {
     return {
-      file: inspection.ggufFiles[0],
+      file: selectableFiles[0].file,
       resolvedRevision: inspection.resolvedRevision,
+      selected: selectableFiles[0],
     };
   }
 
   if (!interactive) {
     throw new ManagerError(
-      `Multiple GGUF files found in ${repo}; rerun with --file explicitly:\n${formatGGUFFiles(inspection.ggufFiles)}`,
+      `Multiple GGUF files found in ${repo}; rerun with --file explicitly:\n${formatGGUFFiles(selectableFiles)}`,
       {
         code: "hf-file-required",
         exitCode: 2,
@@ -254,34 +321,37 @@ async function resolveHFFileSelection(
   }
 
   const file = await prompts.select({
-    message: "Choose a GGUF file to install",
-    options: inspection.ggufFiles.map((candidate) => ({
-      value: candidate,
-      label: candidate,
+    message: "Choose a GGUF file",
+    options: selectableFiles.map((candidate) => ({
+      value: candidate.file,
+      label: candidate.file,
+      hint: formatHFSelectionState(candidate.state),
     })),
   });
+  const selected = selectableFiles.find((candidate) => candidate.file === file);
+  if (!selected) {
+    throw new ManagerError(`Failed to resolve selected GGUF file: ${file}`, {
+      code: "hf-file-selection",
+      exitCode: 1,
+    });
+  }
 
   return {
     file,
     resolvedRevision: inspection.resolvedRevision,
+    selected,
   };
 }
 
 async function confirmHFInstall(
-  manager: VirtualModelRegistry,
   repo: string,
   resolvedRevision: string,
-  file: string,
+  selected: HFSelectableFile,
   yes: boolean,
   interactive: boolean,
   prompts: PromptClient,
 ): Promise<boolean> {
-  const tracked = manager.findTrackedSource("hf", {
-    repo,
-    revision: resolvedRevision,
-    file,
-  });
-  if (tracked) {
+  if (selected.state !== "download-required") {
     return false;
   }
 
@@ -300,7 +370,7 @@ async function confirmHFInstall(
   }
 
   return prompts.confirm({
-    message: `Install model?\nRepo: ${repo}\nFile: ${file}\nRevision: ${resolvedRevision}`,
+    message: `Download and add to VMR?\nRepo: ${repo}\nFile: ${selected.file}\nRevision: ${resolvedRevision}`,
   });
 }
 
@@ -396,34 +466,31 @@ export async function runCli(
             });
           }
 
-          const { file, resolvedRevision } = await resolveHFFileSelection(
-            manager,
-            repo,
-            commandOptions.revision,
-            commandOptions.file,
-            interactive,
-            prompts,
-            reporter,
-          );
+          const { file, resolvedRevision, selected } =
+            await resolveHFFileSelection(
+              manager,
+              repo,
+              commandOptions.revision,
+              commandOptions.file,
+              interactive,
+              prompts,
+              reporter,
+            );
           const shouldInstall = await confirmHFInstall(
-            manager,
             repo,
             resolvedRevision,
-            file,
+            selected,
             Boolean(commandOptions.yes),
             interactive,
             prompts,
           );
 
           if (!shouldInstall) {
-            const tracked = manager.findTrackedSource("hf", {
-              repo,
-              revision: resolvedRevision,
-              file,
-            });
-            if (tracked) {
-              stdout(`existing: ${tracked.name} (${tracked.ref})`);
-              stdout(tracked.entryPath);
+            if (selected.trackedModel) {
+              stdout(
+                `existing: ${selected.trackedModel.name} (${selected.trackedModel.ref})`,
+              );
+              stdout(selected.trackedModel.entryPath);
               return;
             }
           }

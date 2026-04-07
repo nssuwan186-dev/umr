@@ -30,7 +30,9 @@ function createModel(overrides: Record<string, unknown> = {}) {
 
 function createFakeManager(options?: {
   trackedHFSource?: ReturnType<typeof createModel> | null;
+  trackedHFFile?: string;
   inspectGGUFFiles?: string[];
+  cachedHFFiles?: string[];
 }) {
   const calls: Array<{ kind: string; input: unknown }> = [];
   const model = createModel();
@@ -46,9 +48,26 @@ function createFakeManager(options?: {
       repo,
       resolvedRevision: "resolved-sha",
       ggufFiles: options?.inspectGGUFFiles ?? ["tiny-q4.gguf", "tiny-q8.gguf"],
+      cachedFiles: options?.cachedHFFiles ?? [],
     }),
-    findTrackedSource: (_kind: string, _payload: unknown) =>
-      options?.trackedHFSource ?? null,
+    findTrackedSource: (_kind: string, payload: unknown) => {
+      if (!options?.trackedHFSource) {
+        return null;
+      }
+
+      if (!options.trackedHFFile) {
+        return options.trackedHFSource;
+      }
+
+      const file =
+        typeof payload === "object" &&
+        payload !== null &&
+        "file" in payload &&
+        typeof payload.file === "string"
+          ? payload.file
+          : undefined;
+      return file === options.trackedHFFile ? options.trackedHFSource : null;
+    },
     addSource: async (
       kind: string,
       input: unknown,
@@ -213,9 +232,21 @@ test("add hf with --file and --yes dispatches to the explicit hf adapter", async
 
 test("add hf prompts to choose a GGUF file in interactive mode", async () => {
   const manager = createFakeManager();
+  let selectInput:
+    | {
+        message: string;
+        options: Array<{ value: string; label: string; hint?: string }>;
+      }
+    | undefined;
   const prompts = {
     confirm: async () => true,
-    select: async () => "tiny-q8.gguf",
+    select: async (input: {
+      message: string;
+      options: Array<{ value: string; label: string; hint?: string }>;
+    }) => {
+      selectInput = input;
+      return "tiny-q8.gguf";
+    },
   };
 
   const code = await runCli(["add", "hf", "repo/name"], {
@@ -239,6 +270,19 @@ test("add hf prompts to choose a GGUF file in interactive mode", async () => {
       },
     },
   ]);
+  expect(selectInput?.message).toBe("Choose a GGUF file");
+  expect(selectInput?.options).toEqual([
+    {
+      value: "tiny-q4.gguf",
+      label: "tiny-q4.gguf",
+      hint: "Download Required",
+    },
+    {
+      value: "tiny-q8.gguf",
+      label: "tiny-q8.gguf",
+      hint: "Download Required",
+    },
+  ]);
 });
 
 test("add hf without --file fails in non-interactive mode and lists files", async () => {
@@ -258,6 +302,7 @@ test("add hf without --file fails in non-interactive mode and lists files", asyn
   );
   expect(stderrLines.at(-1)).toContain("tiny-q4.gguf");
   expect(stderrLines.at(-1)).toContain("tiny-q8.gguf");
+  expect(stderrLines.at(-1)).toContain("Download Required");
 });
 
 test("add hf without --yes fails in non-interactive mode", async () => {
@@ -310,6 +355,94 @@ test("existing tracked hf source skips confirmation and add", async () => {
   expect(stdoutLines).toEqual([
     "existing: existing-model (m_deadbeefdeadbeef)",
     "/tmp/existing-model/tiny.gguf",
+  ]);
+});
+
+test("cached hf file skips confirmation and adds immediately", async () => {
+  const manager = createFakeManager({
+    inspectGGUFFiles: ["tiny-q4.gguf"],
+    cachedHFFiles: ["tiny-q4.gguf"],
+  });
+  let confirmCalls = 0;
+  const code = await runCli(["add", "hf", "repo/name"], {
+    manager: manager as never,
+    interactive: true,
+    prompts: {
+      confirm: async () => {
+        confirmCalls += 1;
+        return true;
+      },
+      select: async () => "tiny-q4.gguf",
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(confirmCalls).toBe(0);
+  expect(manager.calls).toEqual([
+    {
+      kind: "hf",
+      input: {
+        repo: "repo/name",
+        file: "tiny-q4.gguf",
+        revision: "resolved-sha",
+      },
+    },
+  ]);
+});
+
+test("hf chooser annotates tracked and cached options", async () => {
+  const trackedHFSource = createModel({
+    name: "tracked-model",
+    entryPath: "/tmp/tracked-model/tiny-q4.gguf",
+  });
+  const manager = createFakeManager({
+    trackedHFSource,
+    trackedHFFile: "tiny-q4.gguf",
+    inspectGGUFFiles: ["tiny-q4.gguf", "tiny-q8.gguf"],
+    cachedHFFiles: ["tiny-q8.gguf"],
+  });
+  let selectInput:
+    | {
+        message: string;
+        options: Array<{ value: string; label: string; hint?: string }>;
+      }
+    | undefined;
+
+  const code = await runCli(["add", "hf", "repo/name"], {
+    manager: manager as never,
+    interactive: true,
+    prompts: {
+      confirm: async () => true,
+      select: async (input: {
+        message: string;
+        options: Array<{ value: string; label: string; hint?: string }>;
+      }) => {
+        selectInput = input;
+        return "tiny-q8.gguf";
+      },
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(selectInput?.options).toEqual([
+    {
+      value: "tiny-q4.gguf",
+      label: "tiny-q4.gguf",
+      hint: "Already Added to VMR",
+    },
+    {
+      value: "tiny-q8.gguf",
+      label: "tiny-q8.gguf",
+      hint: "Available Locally in HF",
+    },
   ]);
 });
 

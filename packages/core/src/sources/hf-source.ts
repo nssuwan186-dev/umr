@@ -23,11 +23,13 @@ export interface HFRepoInspection {
   repo: string;
   resolvedRevision: string;
   ggufFiles: string[];
+  cachedFiles: string[];
 }
 
 interface HFModelInfo {
   sha: string;
   siblings: string[];
+  cachedSiblings: string[];
 }
 
 function formatGGUFFiles(files: string[]): string {
@@ -98,13 +100,22 @@ export class HFSourceAdapter implements SourceAdapter<HFSourceInput> {
       `
 import json
 import sys
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, try_to_load_from_cache
 repo = sys.argv[1]
 revision = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] != "__none__" else None
 info = HfApi().model_info(repo, revision=revision)
 print(json.dumps({
   "sha": info.sha,
-  "siblings": [s.rfilename for s in info.siblings or []]
+  "siblings": [s.rfilename for s in info.siblings or []],
+  "cachedSiblings": [
+    sibling.rfilename
+    for sibling in info.siblings or []
+    if sibling.rfilename.lower().endswith(".gguf")
+    and isinstance(
+      try_to_load_from_cache(repo, sibling.rfilename, revision=info.sha),
+      str,
+    )
+  ]
 }))
       `.trim(),
       [input.repo, input.revision ?? "__none__"],
@@ -125,6 +136,7 @@ print(json.dumps({
       repo: input.repo,
       resolvedRevision: info.sha,
       ggufFiles,
+      cachedFiles: info.cachedSiblings,
     };
   }
 
