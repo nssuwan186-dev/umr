@@ -127,6 +127,12 @@ export class Registry {
       .map((row) => rowToModel(row as Record<string, unknown>));
   }
 
+  isNameTaken(name: string): boolean {
+    return !!this.db
+      .query("SELECT 1 FROM models WHERE name = ? LIMIT 1")
+      .get(name);
+  }
+
   getModelByContentDigest(contentDigest: string): ModelRecord | null {
     const row = this.db
       .query("SELECT * FROM models WHERE content_digest = ?")

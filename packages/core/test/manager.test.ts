@@ -102,3 +102,22 @@ test("generic adapters plug into add/register/remove flow for multi-member model
   await vmr.remove(added.model.ref);
   expect(await vmr.listModels()).toHaveLength(0);
 });
+
+test("model names are made unique when the base name collides", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "vmr-name-collision-"));
+  const sourceDir = path.join(dir, "source");
+  await mkdir(sourceDir, { recursive: true });
+  const firstSourcePath = path.join(sourceDir, "first-q4.gguf");
+  const secondSourcePath = path.join(sourceDir, "second-q8.gguf");
+  await createTestGGUF(firstSourcePath, { "general.name": "Active" });
+  await createTestGGUF(secondSourcePath, { "general.name": "Active" });
+
+  const vmr = createVMR(path.join(dir, "home"));
+  const first = await vmr.addSource("path", { path: firstSourcePath });
+  const second = await vmr.addSource("path", { path: secondSourcePath });
+
+  expect(first.model.name).toBe("active");
+  expect(second.model.name).toBe("active-2");
+  expect(vmr.getModel("active").entryPath).toBe(first.model.entryPath);
+  expect(vmr.getModel("active-2").entryPath).toBe(second.model.entryPath);
+});

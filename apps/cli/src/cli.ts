@@ -99,14 +99,12 @@ function printList(
     return;
   }
 
-  write(
-    "NAME                             REF                SIZE      REGS          HEALTH",
-  );
+  write("NAME                             SIZE      REGS          HEALTH");
   for (const row of rows) {
     const registrations =
       row.registrations.length > 0 ? row.registrations.join(",") : "-";
     write(
-      `${row.name.padEnd(32)} ${row.ref.padEnd(18)} ${String(row.totalSizeBytes).padEnd(9)} ${registrations.padEnd(13)} ${row.health}`,
+      `${row.name.padEnd(32)} ${String(row.totalSizeBytes).padEnd(9)} ${registrations.padEnd(13)} ${row.health}`,
     );
   }
 }
@@ -487,9 +485,7 @@ export async function runCli(
 
           if (!shouldInstall) {
             if (selected.trackedModel) {
-              stdout(
-                `existing: ${selected.trackedModel.name} (${selected.trackedModel.ref})`,
-              );
+              stdout(`existing: ${selected.trackedModel.name}`);
               stdout(selected.trackedModel.entryPath);
               return;
             }
@@ -500,9 +496,7 @@ export async function runCli(
             { repo, file, revision: resolvedRevision },
             { reporter, streamSink },
           );
-          stdout(
-            `${result.status}: ${result.model.name} (${result.model.ref})`,
-          );
+          stdout(`${result.status}: ${result.model.name}`);
           stdout(result.model.entryPath);
           return;
         }
@@ -519,7 +513,7 @@ export async function runCli(
           { path: sourceOrPath },
           { reporter, streamSink },
         );
-        stdout(`${result.status}: ${result.model.name} (${result.model.ref})`);
+        stdout(`${result.status}: ${result.model.name}`);
         stdout(result.model.entryPath);
       },
     );
@@ -544,7 +538,6 @@ export async function runCli(
       }
 
       stdout(`name: ${model.name}`);
-      stdout(`ref: ${model.ref}`);
       stdout(`filename: ${model.entryFilename}`);
       stdout(`path: ${model.entryPath}`);
       stdout(`content-digest: ${model.contentDigest}`);

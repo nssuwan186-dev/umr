@@ -11,7 +11,12 @@ import {
   sha256File,
 } from "./fs";
 import { parseGGUF } from "./gguf";
-import { deriveContentDigest, deriveModelName, deriveModelRef } from "./naming";
+import {
+  deriveContentDigest,
+  deriveModelName,
+  deriveModelRef,
+  reserveUniqueModelName,
+} from "./naming";
 import type { DataPaths } from "./paths";
 import { emitInfo, emitSuccess, emitWarning } from "./progress";
 import { Registry } from "./registry";
@@ -199,6 +204,10 @@ export class VirtualModelRegistry {
       const ref = deriveModelRef(contentDigest, (candidate: string) =>
         this.registry.isRefTaken(candidate),
       );
+      const name = reserveUniqueModelName(
+        deriveModelName(resolved.entryRelPath, resolved.metadata),
+        (candidate: string) => this.registry.isNameTaken(candidate),
+      );
       await emitInfo(
         context?.reporter,
         "Adopting model into the managed model root store",
@@ -211,7 +220,7 @@ export class VirtualModelRegistry {
       await emitInfo(context?.reporter, "Recording model in the registry");
       const model = this.registry.createModel({
         ref,
-        name: deriveModelName(resolved.entryRelPath, resolved.metadata),
+        name,
         contentDigest,
         totalSizeBytes,
         rootPath: stored.rootPath,
@@ -359,15 +368,12 @@ export class VirtualModelRegistry {
     );
 
     for (const model of models) {
-      await emitInfo(
-        options?.reporter,
-        `Checking ${model.name} (${model.ref})`,
-      );
+      await emitInfo(options?.reporter, `Checking ${model.name}`);
 
       if (!(await pathExists(model.rootPath))) {
         issues.push({
           severity: "error",
-          ref: model.ref,
+          ref: model.name,
           message: "missing-model-root",
         });
         continue;
@@ -376,7 +382,7 @@ export class VirtualModelRegistry {
       if (!(await pathExists(model.entryPath))) {
         issues.push({
           severity: "error",
-          ref: model.ref,
+          ref: model.name,
           message: "missing-entry-path",
         });
       }
@@ -389,7 +395,7 @@ export class VirtualModelRegistry {
         if (!(await pathExists(memberPath))) {
           issues.push({
             severity: "error",
-            ref: model.ref,
+            ref: model.name,
             message: `missing-member:${member.relPath}`,
           });
           continue;
@@ -399,7 +405,7 @@ export class VirtualModelRegistry {
         if (actualSize !== member.sizeBytes) {
           issues.push({
             severity: "error",
-            ref: model.ref,
+            ref: model.name,
             message: `member-size-mismatch:${member.relPath}`,
           });
         }
@@ -411,7 +417,7 @@ export class VirtualModelRegistry {
         } catch (error) {
           issues.push({
             severity: "error",
-            ref: model.ref,
+            ref: model.name,
             message: `invalid-gguf:${(error as Error).message}`,
           });
         }
@@ -427,7 +433,7 @@ export class VirtualModelRegistry {
         if (!health.ok) {
           issues.push({
             severity: "warning",
-            ref: model.ref,
+            ref: model.name,
             message: `${registration.client}:${health.issues.join(",")}`,
           });
 

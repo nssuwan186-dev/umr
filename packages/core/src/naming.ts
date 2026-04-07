@@ -50,6 +50,25 @@ export function deriveModelName(
   return slug;
 }
 
+export function reserveUniqueModelName(
+  baseName: string,
+  isTaken: (name: string) => boolean,
+): string {
+  if (!isTaken(baseName)) {
+    return baseName;
+  }
+
+  let suffix = 2;
+  while (true) {
+    const candidate = `${baseName}-${suffix}`;
+    if (!isTaken(candidate)) {
+      return candidate;
+    }
+
+    suffix += 1;
+  }
+}
+
 export function deriveOllamaName(modelName: string, ref: string): string {
   const sanitized = slugify(modelName) || "model";
   return `vmr-${sanitized}-${ref.slice(2, 10)}`;

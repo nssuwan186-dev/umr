@@ -138,8 +138,8 @@ test("list prints a simple table", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME                             REF                SIZE      REGS          HEALTH",
-    "tiny-model                       m_deadbeefdeadbeef 123       lmstudio      ok",
+    "NAME                             SIZE      REGS          HEALTH",
+    "tiny-model                       123       lmstudio      ok",
   ]);
 });
 
@@ -173,7 +173,7 @@ test("add local path stays quiet by default while keeping final output on stdout
   ]);
   expect(stderrLines).toEqual([]);
   expect(stdoutLines).toEqual([
-    "tracked: tiny-model (m_deadbeefdeadbeef)",
+    "tracked: tiny-model",
     "/tmp/model-root/tiny.gguf",
   ]);
 });
@@ -353,7 +353,7 @@ test("existing tracked hf source skips confirmation and add", async () => {
   expect(confirmCalls).toBe(0);
   expect(manager.calls).toEqual([]);
   expect(stdoutLines).toEqual([
-    "existing: existing-model (m_deadbeefdeadbeef)",
+    "existing: existing-model",
     "/tmp/existing-model/tiny.gguf",
   ]);
 });
