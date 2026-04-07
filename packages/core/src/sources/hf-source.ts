@@ -15,9 +15,19 @@ export interface HFSourceInput {
   revision?: string;
 }
 
+export interface HFRepoInspection {
+  repo: string;
+  resolvedRevision: string;
+  ggufFiles: string[];
+}
+
 interface HFModelInfo {
   sha: string;
   siblings: string[];
+}
+
+function formatGGUFFiles(files: string[]): string {
+  return files.map((file) => `  - ${file}`).join("\n");
 }
 
 async function resolvePythonCommand(runner: CommandRunner): Promise<string> {
@@ -71,10 +81,10 @@ export class HFSourceAdapter implements SourceAdapter<HFSourceInput> {
     };
   }
 
-  async resolve(
+  async inspect(
     input: HFSourceInput,
     context?: OperationContext,
-  ): Promise<ResolvedSource> {
+  ): Promise<HFRepoInspection> {
     await emitInfo(
       context?.reporter,
       `Resolving Hugging Face repo ${input.repo}${input.revision ? ` @ ${input.revision}` : ""}`,
@@ -99,6 +109,27 @@ print(json.dumps({
     const ggufFiles = info.siblings.filter((file) =>
       file.toLowerCase().endsWith(".gguf"),
     );
+
+    if (ggufFiles.length === 0) {
+      throw new ManagerError(`No GGUF files found in ${input.repo}`, {
+        code: "hf-no-gguf-files",
+        exitCode: 2,
+      });
+    }
+
+    return {
+      repo: input.repo,
+      resolvedRevision: info.sha,
+      ggufFiles,
+    };
+  }
+
+  async resolve(
+    input: HFSourceInput,
+    context?: OperationContext,
+  ): Promise<ResolvedSource> {
+    const inspection = await this.inspect(input, context);
+    const { ggufFiles } = inspection;
     const selectedFile =
       input.file ??
       (() => {
@@ -109,7 +140,7 @@ print(json.dumps({
         throw new ManagerError(
           ggufFiles.length === 0
             ? `No GGUF files found in ${input.repo}`
-            : `Multiple GGUF files found in ${input.repo}; pass --file explicitly`,
+            : `Multiple GGUF files found in ${input.repo}; pass --file explicitly:\n${formatGGUFFiles(ggufFiles)}`,
           {
             code: "hf-file-required",
             exitCode: 2,
@@ -119,7 +150,7 @@ print(json.dumps({
 
     if (!ggufFiles.includes(selectedFile)) {
       throw new ManagerError(
-        `GGUF file not found in ${input.repo}: ${selectedFile}`,
+        `GGUF file not found in ${input.repo}: ${selectedFile}\nAvailable GGUF files:\n${formatGGUFFiles(ggufFiles)}`,
         {
           code: "hf-missing-file",
           exitCode: 2,
@@ -131,9 +162,12 @@ print(json.dumps({
       context?.reporter,
       `Fetching ${selectedFile} from the Hugging Face cache`,
     );
-    const download = await runPythonJson<{ path: string }>(
-      this.runner,
-      `
+    const python = await resolvePythonCommand(this.runner);
+    const download = await this.runner.runStreaming(
+      python,
+      [
+        "-c",
+        `
 import json
 import sys
 from huggingface_hub import hf_hub_download
@@ -141,31 +175,56 @@ repo = sys.argv[1]
 filename = sys.argv[2]
 revision = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != "__none__" else None
 path = hf_hub_download(repo, filename, revision=revision)
-print(json.dumps({"path": path}))
+print(json.dumps({"path": path}), flush=True)
       `.trim(),
-      [input.repo, selectedFile, info.sha ?? "__none__"],
+        input.repo,
+        selectedFile,
+        inspection.resolvedRevision,
+      ],
+      {
+        onStderrChunk: async (chunk) => {
+          await context?.streamSink?.stderr?.(chunk);
+        },
+      },
     );
+    let downloadPath: string;
+    try {
+      downloadPath = (JSON.parse(download.stdout.trim()) as { path: string })
+        .path;
+    } catch (error) {
+      throw new ManagerError("Failed to parse Hugging Face download output", {
+        code: "hf-json",
+        exitCode: 1,
+        cause: error,
+      });
+    }
+    if (download.exitCode !== 0) {
+      throw new ManagerError("Failed to download from Hugging Face", {
+        code: "hf-download-failed",
+        exitCode: 1,
+        cause: download.stderr || download.stdout,
+      });
+    }
 
     await emitInfo(
       context?.reporter,
       `Reading GGUF metadata from ${selectedFile}`,
     );
-    const summary = await parseGGUF(download.path);
+    const summary = await parseGGUF(downloadPath);
 
     return {
       format: summary.format,
       metadata: summary.metadata,
       provenance: {
         repo: input.repo,
-        revision: info.sha,
+        revision: inspection.resolvedRevision,
         file: selectedFile,
-        cachedPath: download.path,
       } as Record<string, JsonValue>,
       storeStrategy: "hardlink-or-copy",
       entryRelPath: selectedFile,
       members: [
         {
-          sourcePath: download.path,
+          sourcePath: downloadPath,
           relPath: selectedFile,
         },
       ],

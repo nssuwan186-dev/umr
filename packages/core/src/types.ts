@@ -21,8 +21,14 @@ export interface ProgressReporter {
   emit(event: ProgressEvent): void | Promise<void>;
 }
 
+export interface StreamSink {
+  stdout?(chunk: string): void | Promise<void>;
+  stderr?(chunk: string): void | Promise<void>;
+}
+
 export interface OperationContext {
   reporter?: ProgressReporter;
+  streamSink?: StreamSink;
 }
 
 export interface SourceDescriptor {

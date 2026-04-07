@@ -134,6 +134,22 @@ export class Registry {
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
+  findModelBySource(
+    kind: string,
+    payload: Record<string, JsonValue>,
+  ): ModelRecord | null {
+    const row = this.db
+      .query(
+        `SELECT models.*
+         FROM models
+         JOIN sources ON sources.model_id = models.id
+         WHERE sources.kind = ? AND sources.payload_json = ?
+         LIMIT 1`,
+      )
+      .get(kind, JSON.stringify(payload));
+    return row ? rowToModel(row as Record<string, unknown>) : null;
+  }
+
   isRefTaken(ref: string): boolean {
     return !!this.db
       .query("SELECT 1 FROM models WHERE ref = ? LIMIT 1")

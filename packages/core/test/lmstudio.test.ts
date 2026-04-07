@@ -16,7 +16,7 @@ import { PathSourceAdapter } from "../src/sources/path-source";
 import { createTestGGUF } from "./helpers/gguf";
 
 function createLmsRunner(modelsDir: string): CommandRunner {
-  return {
+  const runner: CommandRunner = {
     async commandExists(command: string): Promise<boolean> {
       return command === "lms";
     },
@@ -33,7 +33,15 @@ function createLmsRunner(modelsDir: string): CommandRunner {
       await Bun.write(targetPath, Bun.file(source));
       return { exitCode: 0, stdout: "ok", stderr: "" };
     },
+    async runStreaming(
+      command: string,
+      args: string[] = [],
+    ): Promise<CommandResult> {
+      return runner.run(command, args);
+    },
   };
+
+  return runner;
 }
 
 function createVMR(

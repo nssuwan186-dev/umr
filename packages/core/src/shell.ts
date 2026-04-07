@@ -10,20 +10,79 @@ export interface CommandResult {
   exitCode: number;
 }
 
+export interface CommandRunOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+export interface CommandStreamOptions extends CommandRunOptions {
+  onStdoutChunk?: (chunk: string) => void | Promise<void>;
+  onStderrChunk?: (chunk: string) => void | Promise<void>;
+}
+
 export interface CommandRunner {
   run(
     command: string,
     args?: string[],
-    options?: { cwd?: string; env?: Record<string, string | undefined> },
+    options?: CommandRunOptions,
+  ): Promise<CommandResult>;
+  runStreaming(
+    command: string,
+    args?: string[],
+    options?: CommandStreamOptions,
   ): Promise<CommandResult>;
   commandExists(command: string): Promise<boolean>;
 }
 
 export class BunCommandRunner implements CommandRunner {
+  private async consumeStream(
+    stream: ReadableStream<Uint8Array> | null | undefined,
+    onChunk?: (chunk: string) => void | Promise<void>,
+  ): Promise<string> {
+    if (!stream) {
+      return "";
+    }
+
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let output = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      const chunk = decoder.decode(value, { stream: true });
+      if (!chunk) {
+        continue;
+      }
+
+      output += chunk;
+      await onChunk?.(chunk);
+    }
+
+    const trailing = decoder.decode();
+    if (trailing) {
+      output += trailing;
+      await onChunk?.(trailing);
+    }
+
+    return output;
+  }
+
   async run(
     command: string,
     args: string[] = [],
-    options?: { cwd?: string; env?: Record<string, string | undefined> },
+    options?: CommandRunOptions,
+  ): Promise<CommandResult> {
+    return this.runStreaming(command, args, options);
+  }
+
+  async runStreaming(
+    command: string,
+    args: string[] = [],
+    options?: CommandStreamOptions,
   ): Promise<CommandResult> {
     const proc = Bun.spawn([command, ...args], {
       cwd: options?.cwd,
@@ -36,8 +95,8 @@ export class BunCommandRunner implements CommandRunner {
     });
 
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      this.consumeStream(proc.stdout, options?.onStdoutChunk),
+      this.consumeStream(proc.stderr, options?.onStderrChunk),
       proc.exited,
     ]);
 
@@ -71,7 +130,7 @@ export async function runOrThrow(
   runner: CommandRunner,
   command: string,
   args: string[],
-  options?: { cwd?: string; env?: Record<string, string | undefined> },
+  options?: CommandRunOptions,
 ): Promise<CommandResult> {
   const result = await runner.run(command, args, options);
   if (result.exitCode !== 0) {

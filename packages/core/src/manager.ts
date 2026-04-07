@@ -15,10 +15,16 @@ import { deriveContentDigest, deriveModelName, deriveModelRef } from "./naming";
 import type { DataPaths } from "./paths";
 import { emitInfo, emitSuccess, emitWarning } from "./progress";
 import { Registry } from "./registry";
+import {
+  type HFRepoInspection,
+  HFSourceAdapter,
+  type HFSourceInput,
+} from "./sources/hf-source";
 import { ModelStore } from "./store";
 import type {
   CheckIssue,
   CheckResult,
+  JsonValue,
   ModelDetails,
   ModelManifestMember,
   ModelRecord,
@@ -98,6 +104,33 @@ export class VirtualModelRegistry {
       .all()
       .map((adapter) => adapter.kind())
       .filter((kind) => kind !== "path");
+  }
+
+  async inspectHFSource(
+    input: HFSourceInput,
+    context?: OperationContext,
+  ): Promise<HFRepoInspection> {
+    const adapter = this.sourceAdapters.get("hf");
+    if (!(adapter instanceof HFSourceAdapter)) {
+      throw new ManagerError("HF source adapter is not available", {
+        code: "missing-hf-adapter",
+        exitCode: 2,
+      });
+    }
+
+    return adapter.inspect(input, context);
+  }
+
+  findTrackedSource(
+    kind: string,
+    payload: Record<string, JsonValue>,
+  ): ModelDetails | null {
+    const model = this.registry.findModelBySource(kind, payload);
+    if (!model) {
+      return null;
+    }
+
+    return this.registry.getModelDetails(model.ref);
   }
 
   private resolveModelDetails(selector: string): ModelDetails {
