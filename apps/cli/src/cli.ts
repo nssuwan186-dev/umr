@@ -1,11 +1,38 @@
 import {
+  confirm as clackConfirm,
+  select as clackSelect,
+  isCancel,
+} from "@clack/prompts";
+import {
   type CheckResult,
+  ManagerError,
   type ModelDetails,
   type ProgressEvent,
+  type StreamSink,
   type VirtualModelRegistry,
   asManagerError,
   createDefaultVMR,
 } from "@vmr/core";
+import { Command, CommanderError } from "commander";
+
+interface PromptOption {
+  value: string;
+  label: string;
+  hint?: string;
+}
+
+interface PromptClient {
+  confirm(input: { message: string }): Promise<boolean>;
+  select(input: {
+    message: string;
+    options: PromptOption[];
+  }): Promise<string>;
+}
+
+interface BufferedRawWriter {
+  write(chunk: string): void;
+  flush(): void;
+}
 
 function formatSources(model: ModelDetails): string {
   return model.sources
@@ -28,6 +55,10 @@ function formatRegistrations(model: ModelDetails): string {
       (registration) => `${registration.client} -> ${registration.clientRef}`,
     )
     .join("\n");
+}
+
+function formatGGUFFiles(files: string[]): string {
+  return files.map((file) => `  - ${file}`).join("\n");
 }
 
 function printCheck(result: CheckResult, write: (line: string) => void): void {
@@ -67,18 +98,82 @@ function printList(
   }
 }
 
-function usage(): string {
-  return `Usage:
-  vmr add hf <repo> [--file <filename>] [--revision <rev>]
-  vmr add <path>
-  vmr list
-  vmr show <model> [--path]
-  vmr register lmstudio <model>
-  vmr register ollama <model>
-  vmr unregister lmstudio <model>
-  vmr unregister ollama <model>
-  vmr remove <model>
-  vmr check [--fix]`;
+function createDefaultPromptClient(): PromptClient {
+  return {
+    async confirm(input) {
+      const result = await clackConfirm({ message: input.message });
+      if (isCancel(result)) {
+        throw new ManagerError("Canceled", {
+          code: "prompt-canceled",
+          exitCode: 130,
+        });
+      }
+
+      return result;
+    },
+    async select(input) {
+      const result = await clackSelect({
+        message: input.message,
+        options: input.options,
+      });
+      if (isCancel(result)) {
+        throw new ManagerError("Canceled", {
+          code: "prompt-canceled",
+          exitCode: 130,
+        });
+      }
+
+      return result;
+    },
+  };
+}
+
+function createBufferedRawWriter(
+  lineWriter: ((line: string) => void) | undefined,
+  rawWriter: ((chunk: string) => void) | undefined,
+): BufferedRawWriter {
+  let buffer = "";
+
+  return {
+    write(chunk: string) {
+      if (rawWriter) {
+        rawWriter(chunk);
+        return;
+      }
+
+      if (!lineWriter) {
+        return;
+      }
+
+      buffer += chunk;
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        lineWriter(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
+    },
+    flush() {
+      if (!rawWriter && lineWriter && buffer.length > 0) {
+        lineWriter(buffer);
+      }
+      buffer = "";
+    },
+  };
+}
+
+function createStreamSink(
+  stderrRaw: BufferedRawWriter,
+  stdoutRaw: BufferedRawWriter,
+): StreamSink {
+  return {
+    stderr(chunk: string) {
+      stderrRaw.write(chunk);
+    },
+    stdout(chunk: string) {
+      stdoutRaw.write(chunk);
+    },
+  };
 }
 
 class CliProgressReporter {
@@ -99,93 +194,258 @@ class CliProgressReporter {
   }
 }
 
+async function resolveHFFileSelection(
+  manager: VirtualModelRegistry,
+  repo: string,
+  revision: string | undefined,
+  requestedFile: string | undefined,
+  interactive: boolean,
+  prompts: PromptClient,
+  reporter: CliProgressReporter,
+): Promise<{ file: string; resolvedRevision: string }> {
+  const inspection = await manager.inspectHFSource(
+    { repo, revision },
+    { reporter },
+  );
+
+  if (requestedFile) {
+    if (!inspection.ggufFiles.includes(requestedFile)) {
+      throw new ManagerError(
+        `GGUF file not found in ${repo}: ${requestedFile}\nAvailable GGUF files:\n${formatGGUFFiles(inspection.ggufFiles)}`,
+        {
+          code: "hf-missing-file",
+          exitCode: 2,
+        },
+      );
+    }
+
+    return {
+      file: requestedFile,
+      resolvedRevision: inspection.resolvedRevision,
+    };
+  }
+
+  if (inspection.ggufFiles.length === 1) {
+    return {
+      file: inspection.ggufFiles[0],
+      resolvedRevision: inspection.resolvedRevision,
+    };
+  }
+
+  if (!interactive) {
+    throw new ManagerError(
+      `Multiple GGUF files found in ${repo}; rerun with --file explicitly:\n${formatGGUFFiles(inspection.ggufFiles)}`,
+      {
+        code: "hf-file-required",
+        exitCode: 2,
+      },
+    );
+  }
+
+  const file = await prompts.select({
+    message: "Choose a GGUF file to install",
+    options: inspection.ggufFiles.map((candidate) => ({
+      value: candidate,
+      label: candidate,
+    })),
+  });
+
+  return {
+    file,
+    resolvedRevision: inspection.resolvedRevision,
+  };
+}
+
+async function confirmHFInstall(
+  manager: VirtualModelRegistry,
+  repo: string,
+  resolvedRevision: string,
+  file: string,
+  yes: boolean,
+  interactive: boolean,
+  prompts: PromptClient,
+): Promise<boolean> {
+  const tracked = manager.findTrackedSource("hf", {
+    repo,
+    revision: resolvedRevision,
+    file,
+  });
+  if (tracked) {
+    return false;
+  }
+
+  if (yes) {
+    return true;
+  }
+
+  if (!interactive) {
+    throw new ManagerError(
+      "Hugging Face downloads require confirmation in non-interactive mode; rerun with --yes",
+      {
+        code: "hf-confirm-required",
+        exitCode: 2,
+      },
+    );
+  }
+
+  return prompts.confirm({
+    message: `Install model?\nRepo: ${repo}\nFile: ${file}\nRevision: ${resolvedRevision}`,
+  });
+}
+
 export async function runCli(
   argv: string[],
   options?: {
     manager?: VirtualModelRegistry;
     stdout?: (line: string) => void;
     stderr?: (line: string) => void;
+    stdoutRaw?: (chunk: string) => void;
+    stderrRaw?: (chunk: string) => void;
+    interactive?: boolean;
+    prompts?: PromptClient;
   },
 ): Promise<number> {
   const manager = options?.manager ?? createDefaultVMR();
   const stdout = options?.stdout ?? ((line: string) => console.log(line));
   const stderr = options?.stderr ?? ((line: string) => console.error(line));
+  const stdoutRaw = createBufferedRawWriter(
+    options?.stdout ? stdout : undefined,
+    options?.stdoutRaw ?? ((chunk: string) => process.stdout.write(chunk)),
+  );
+  const stderrRaw = createBufferedRawWriter(
+    options?.stderr ? stderr : undefined,
+    options?.stderrRaw ?? ((chunk: string) => process.stderr.write(chunk)),
+  );
   const reporter = new CliProgressReporter(stderr);
+  const streamSink = createStreamSink(stderrRaw, stdoutRaw);
+  const interactive =
+    options?.interactive ??
+    Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const prompts = options?.prompts ?? createDefaultPromptClient();
 
-  try {
-    const [command, ...rest] = argv;
-    if (!command || command === "--help" || command === "-h") {
-      stdout(usage());
-      return 0;
-    }
+  const program = new Command();
+  program
+    .name("vmr")
+    .description("Virtual Model Registry")
+    .showHelpAfterError()
+    .showSuggestionAfterError()
+    .configureOutput({
+      writeOut: (chunk) => stdoutRaw.write(chunk),
+      writeErr: (chunk) => stderrRaw.write(chunk),
+    })
+    .exitOverride();
 
-    if (command === "add") {
-      const [sourceOrPath, ...args] = rest;
-      if (!sourceOrPath) {
-        throw new Error("Missing source or path");
-      }
-
-      const explicitSourceKinds = manager.listExplicitSourceKinds();
-      if (explicitSourceKinds.includes(sourceOrPath)) {
+  program
+    .command("add")
+    .description("Add a local path or an explicit source")
+    .usage(
+      "hf <repo> [--file <filename>] [--revision <rev>] [--yes]\n  vmr add <path>",
+    )
+    .argument("<sourceOrPath>", "Source keyword or local path")
+    .argument("[value]", "Source-specific value")
+    .option(
+      "--file <filename>",
+      "Explicit GGUF filename for Hugging Face repos",
+    )
+    .option("--revision <revision>", "Revision, branch, or commit to resolve")
+    .option("-y, --yes", "Skip interactive confirmation prompts")
+    .action(
+      async (
+        sourceOrPath: string,
+        value: string | undefined,
+        commandOptions: {
+          file?: string;
+          revision?: string;
+          yes?: boolean;
+        },
+      ) => {
         if (sourceOrPath === "hf") {
-          const repo = args[0];
+          const repo = value;
           if (!repo) {
-            throw new Error("Missing Hugging Face repo");
+            throw new ManagerError("Missing Hugging Face repo", {
+              code: "missing-hf-repo",
+              exitCode: 2,
+            });
           }
 
-          let file: string | undefined;
-          let revision: string | undefined;
-          for (let index = 1; index < args.length; index += 1) {
-            if (args[index] === "--file") {
-              file = args[index + 1];
-              index += 1;
-            } else if (args[index] === "--revision") {
-              revision = args[index + 1];
-              index += 1;
+          const { file, resolvedRevision } = await resolveHFFileSelection(
+            manager,
+            repo,
+            commandOptions.revision,
+            commandOptions.file,
+            interactive,
+            prompts,
+            reporter,
+          );
+          const shouldInstall = await confirmHFInstall(
+            manager,
+            repo,
+            resolvedRevision,
+            file,
+            Boolean(commandOptions.yes),
+            interactive,
+            prompts,
+          );
+
+          if (!shouldInstall) {
+            const tracked = manager.findTrackedSource("hf", {
+              repo,
+              revision: resolvedRevision,
+              file,
+            });
+            if (tracked) {
+              stdout(`existing: ${tracked.name} (${tracked.ref})`);
+              stdout(tracked.entryPath);
+              return;
             }
           }
 
           const result = await manager.addSource(
             "hf",
-            { repo, file, revision },
-            { reporter },
+            { repo, file, revision: resolvedRevision },
+            { reporter, streamSink },
           );
           stdout(
             `${result.status}: ${result.model.name} (${result.model.ref})`,
           );
           stdout(result.model.entryPath);
-          return 0;
+          return;
         }
 
-        throw new Error(`Unsupported source keyword: ${sourceOrPath}`);
-      }
+        if (value !== undefined) {
+          throw new ManagerError("Usage: vmr add <path>", {
+            code: "unexpected-add-argument",
+            exitCode: 2,
+          });
+        }
 
-      const result = await manager.addSource(
-        "path",
-        { path: sourceOrPath },
-        { reporter },
-      );
-      stdout(`${result.status}: ${result.model.name} (${result.model.ref})`);
-      stdout(result.model.entryPath);
-      return 0;
-    }
+        const result = await manager.addSource(
+          "path",
+          { path: sourceOrPath },
+          { reporter, streamSink },
+        );
+        stdout(`${result.status}: ${result.model.name} (${result.model.ref})`);
+        stdout(result.model.entryPath);
+      },
+    );
 
-    if (command === "list") {
+  program
+    .command("list")
+    .description("List tracked models")
+    .action(async () => {
       printList(await manager.listModels(), stdout);
-      return 0;
-    }
+    });
 
-    if (command === "show") {
-      const selector = rest[0];
-      if (!selector) {
-        throw new Error("Missing model selector");
-      }
-
-      const pathOnly = rest.includes("--path");
+  program
+    .command("show")
+    .description("Show a tracked model")
+    .argument("<model>", "Model selector")
+    .option("--path", "Print only the model entry path")
+    .action((selector: string, commandOptions: { path?: boolean }) => {
       const model = manager.getModel(selector);
-      if (pathOnly) {
+      if (commandOptions.path) {
         stdout(model.entryPath);
-        return 0;
+        return;
       }
 
       stdout(`name: ${model.name}`);
@@ -196,58 +456,78 @@ export async function runCli(
       stdout(`size: ${model.totalSizeBytes}`);
       stdout(`sources:\n${formatSources(model)}`);
       stdout(`registrations:\n${formatRegistrations(model)}`);
-      return 0;
-    }
+    });
 
-    if (command === "register") {
-      const [client, selector] = rest;
-      if (!client || !selector) {
-        throw new Error("Usage: vmr register <client> <model>");
-      }
-
+  program
+    .command("register")
+    .description("Register a model with a client")
+    .argument("<client>", "Client name")
+    .argument("<model>", "Model selector")
+    .action(async (client: string, selector: string) => {
       const registration = await manager.register(client, selector, {
         reporter,
+        streamSink,
       });
       stdout(
         `registered ${selector} with ${client}: ${registration.clientRef}`,
       );
-      return 0;
-    }
+    });
 
-    if (command === "unregister") {
-      const [client, selector] = rest;
-      if (!client || !selector) {
-        throw new Error("Usage: vmr unregister <client> <model>");
-      }
-
-      await manager.unregister(client, selector, { reporter });
+  program
+    .command("unregister")
+    .description("Remove a client registration")
+    .argument("<client>", "Client name")
+    .argument("<model>", "Model selector")
+    .action(async (client: string, selector: string) => {
+      await manager.unregister(client, selector, { reporter, streamSink });
       stdout(`unregistered ${selector} from ${client}`);
-      return 0;
-    }
+    });
 
-    if (command === "remove") {
-      const selector = rest[0];
-      if (!selector) {
-        throw new Error("Missing model selector");
-      }
-
-      await manager.remove(selector, { reporter });
+  program
+    .command("remove")
+    .description("Remove a model from managed storage")
+    .argument("<model>", "Model selector")
+    .action(async (selector: string) => {
+      await manager.remove(selector, { reporter, streamSink });
       stdout(`removed ${selector}`);
+    });
+
+  program
+    .command("check")
+    .description("Check managed state and optionally repair stale records")
+    .option("--fix", "Apply safe repairs")
+    .action(async (commandOptions: { fix?: boolean }) => {
+      const result = await manager.check({ fix: commandOptions.fix, reporter });
+      printCheck(result, stdout);
+      if (result.issues.length > 0) {
+        throw new ManagerError("check completed with issues", {
+          code: "check-issues",
+          exitCode: 3,
+        });
+      }
+    });
+
+  try {
+    if (argv.length === 0) {
+      program.outputHelp();
       return 0;
     }
 
-    if (command === "check") {
-      const fix = rest.includes("--fix");
-      const result = await manager.check({ fix, reporter });
-      printCheck(result, stdout);
-      return result.issues.length === 0 ? 0 : 3;
+    await program.parseAsync(argv, { from: "user" });
+    return 0;
+  } catch (error) {
+    stdoutRaw.flush();
+    stderrRaw.flush();
+
+    if (error instanceof CommanderError) {
+      return error.exitCode;
     }
 
-    stderr(usage());
-    return 1;
-  } catch (error) {
     const managerError = asManagerError(error);
     stderr(managerError.message);
     return managerError.exitCode;
+  } finally {
+    stdoutRaw.flush();
+    stderrRaw.flush();
   }
 }
