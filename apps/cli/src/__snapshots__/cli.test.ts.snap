@@ -1,0 +1,6 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`list prints a simple table 1`] = `
+"NAME                             REF                SIZE      REGS          HEALTH
+tiny-model                       m_deadbeefdeadbeef 123       lmstudio      ok"
+`;
