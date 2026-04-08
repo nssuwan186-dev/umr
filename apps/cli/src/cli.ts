@@ -89,23 +89,35 @@ const TARGET_ROWS: HelpRow[] = [
 function formatHelpRows(
   rows: HelpRow[],
   theme: CliTheme,
-  options?: { usageStyle?: "accent" | "command" | "plain" },
+  options?: {
+    commandStyle?: "command" | "flag" | "plain";
+    usageStyle?: "accent" | "command" | "dim" | "flag" | "plain";
+  },
 ): string[] {
   const commandWidth = Math.max(...rows.map((row) => row.command.length), 0);
   const usageWidth = Math.max(...rows.map((row) => row.usage.length), 0);
+  const commandStyle = options?.commandStyle ?? "command";
   const usageStyle = options?.usageStyle ?? "accent";
 
   return rows.map((row) => {
     const commandColumn = row.command
-      ? theme.command(row.command.padEnd(commandWidth))
+      ? commandStyle === "flag"
+        ? theme.flag(row.command.padEnd(commandWidth))
+        : commandStyle === "plain"
+          ? row.command.padEnd(commandWidth)
+          : theme.command(row.command.padEnd(commandWidth))
       : "".padEnd(commandWidth);
     const usageText = row.usage.padEnd(usageWidth);
     const usageColumn =
       usageStyle === "command"
         ? theme.command(usageText)
-        : usageStyle === "plain"
-          ? usageText
-          : theme.accent(usageText);
+        : usageStyle === "flag"
+          ? theme.flag(usageText)
+          : usageStyle === "dim"
+            ? theme.dim(usageText)
+            : usageStyle === "plain"
+              ? usageText
+              : theme.accent(usageText);
 
     if (usageWidth > 0) {
       return `  ${commandColumn}  ${usageColumn}  ${theme.description(row.description)}`;
@@ -116,92 +128,137 @@ function formatHelpRows(
 }
 
 function renderRootHelp(theme: CliTheme): string {
-  const commandRows = [
-    {
-      command: "add",
-      usage: "<source>",
-      description: "Add a model to UMR",
-    },
-    {
-      command: "",
-      usage: "hf <repo>",
-      description: "Add a model from Hugging Face",
-    },
-    {
-      command: "",
-      usage: "<path>",
-      description: "Add a local model",
-    },
-    {
-      command: "link",
-      usage: "<target> <model>",
-      description: "Link a model to a target app",
-    },
-    {
-      command: "unlink",
-      usage: "<target> <model>",
-      description: "Remove a model link from a target app",
-    },
-    {
-      command: "list",
-      usage: "",
-      description: "List tracked models",
-    },
-    {
-      command: "show",
-      usage: "<model>",
-      description: "Show model details",
-    },
-    {
-      command: "remove",
-      usage: "<model>",
-      description: "Remove a model from UMR",
-    },
-    {
-      command: "check",
-      usage: "",
-      description: "Check UMR state and target links",
-    },
-    {
-      command: "<command>",
-      usage: "--help",
-      description: "Print help text for command",
-    },
-  ];
   const flagRows = [
-    {
-      command: "-v, --verbose",
-      usage: "",
-      description: "Show detailed progress",
-    },
-    {
-      command: "-h, --help",
-      usage: "",
-      description: "Print help",
-    },
     {
       command: "--version",
       usage: "",
       description: "Print version",
     },
+    {
+      command: "--help",
+      usage: "",
+      description: "Print help",
+    },
   ];
+  const commandWidth = "<command>".length;
+  const usageWidth = "<target> <model>".length;
+  const renderRow = (input: {
+    command?: string;
+    commandColor?: "add" | "blue" | "orange" | "plain";
+    description: string;
+    usage?: string;
+    usageColor?: "dim" | "flag" | "plain";
+  }) => {
+    const command = input.command ?? "";
+    const usage = input.usage ?? "";
+    const coloredCommand =
+      input.commandColor === "add"
+        ? theme.addCommand(command.padEnd(commandWidth))
+        : input.commandColor === "blue"
+          ? theme.blueCommand(command.padEnd(commandWidth))
+          : input.commandColor === "orange"
+            ? theme.orangeCommand(command.padEnd(commandWidth))
+            : input.commandColor === "plain"
+              ? theme.dim(command.padEnd(commandWidth))
+              : "".padEnd(commandWidth);
+    const coloredUsage =
+      input.usageColor === "flag"
+        ? theme.flag(usage.padEnd(usageWidth))
+        : input.usageColor === "plain"
+          ? usage.padEnd(usageWidth)
+          : theme.dim(usage.padEnd(usageWidth));
+
+    return `  ${coloredCommand}  ${coloredUsage}  ${theme.description(input.description)}`;
+  };
 
   return [
     `${theme.product("UMR")} is the unified model registry for your local AI apps. ${theme.muted(`(v${UMR_VERSION})`)}`,
     "",
-    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.accent("<command>")} ${theme.accent("[...flags]")} ${theme.accent("[...args]")}`,
+    `${theme.heading("Usage:")} umr <command> [...flags] [...args]`,
     "",
     theme.heading("Commands:"),
-    ...formatHelpRows(commandRows, theme),
+    renderRow({
+      command: "add",
+      commandColor: "add",
+      usage: "<source>",
+      usageColor: "plain",
+      description: "Add a model to UMR",
+    }),
+    renderRow({
+      usage: "hf <repo>",
+      description: "Add a model from Hugging Face",
+    }),
+    renderRow({
+      usage: "<path>",
+      description: "Add a local model",
+    }),
     "",
-    theme.heading("Sources:"),
-    ...formatHelpRows(SOURCE_ROWS, theme, { usageStyle: "plain" }),
+    renderRow({
+      command: "link",
+      commandColor: "blue",
+      usage: "<target> <model>",
+      usageColor: "plain",
+      description: "Link a model to a target app",
+    }),
+    renderRow({
+      usage: "lmstudio <model>",
+      description: "Link model to LM Studio",
+    }),
+    renderRow({
+      usage: "ollama <model>",
+      description: "Link model to Ollama",
+    }),
+    renderRow({
+      usage: "jan <model>",
+      description: "Link model to Jan",
+    }),
+    `  ${"".padEnd(commandWidth)}  ${theme.dim("To see the full list, run ")}${theme.plain("`umr link ")}${theme.flag("--help")}${theme.plain("`")}`,
+    renderRow({
+      command: "unlink",
+      commandColor: "blue",
+      usage: "<target> <model>",
+      usageColor: "plain",
+      description: "Remove a model link from a target app",
+    }),
     "",
-    theme.heading("Targets:"),
-    ...formatHelpRows(TARGET_ROWS, theme, { usageStyle: "plain" }),
+    renderRow({
+      command: "list",
+      commandColor: "orange",
+      description: "List tracked models",
+    }),
+    renderRow({
+      command: "show",
+      commandColor: "orange",
+      usage: "<model>",
+      usageColor: "plain",
+      description: "Show model details",
+    }),
+    renderRow({
+      command: "remove",
+      commandColor: "orange",
+      usage: "<model>",
+      usageColor: "plain",
+      description: "Remove a model from UMR",
+    }),
+    renderRow({
+      command: "check",
+      commandColor: "orange",
+      description: "Check UMR state and target links",
+    }),
+    "",
+    renderRow({
+      command: "<command>",
+      commandColor: "plain",
+      usage: "--help",
+      usageColor: "flag",
+      description: "Print help text for command",
+    }),
     "",
     theme.heading("Flags:"),
-    ...formatHelpRows(flagRows, theme, { usageStyle: "plain" }),
+    ...formatHelpRows(flagRows, theme, {
+      commandStyle: "flag",
+      usageStyle: "plain",
+    }),
     "",
   ].join("\n");
 }
@@ -231,16 +288,22 @@ function renderAddHelp(theme: CliTheme): string {
   ];
 
   return [
-    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.command("add")} ${theme.accent("<path>")}`,
-    `       ${theme.command("umr")} ${theme.command("add")} ${theme.command("hf")} ${theme.accent("<repo>")} ${theme.accent("[--file <name>]")} ${theme.accent("[--revision <rev>]")} ${theme.accent("[--yes]")}`,
+    `${theme.heading("Usage:")} umr add <path>`,
+    "       umr add hf <repo> [--file <name>] [--revision <rev>] [--yes]",
     "",
     "Add a model from a local path or Hugging Face.",
     "",
     theme.heading("Sources:"),
-    ...formatHelpRows(SOURCE_ROWS, theme, { usageStyle: "plain" }),
+    ...formatHelpRows(SOURCE_ROWS, theme, {
+      commandStyle: "plain",
+      usageStyle: "plain",
+    }),
     "",
     theme.heading("Options:"),
-    ...formatHelpRows(optionRows, theme, { usageStyle: "plain" }),
+    ...formatHelpRows(optionRows, theme, {
+      commandStyle: "flag",
+      usageStyle: "plain",
+    }),
     "",
   ].join("\n");
 }
@@ -255,17 +318,23 @@ function renderLinkHelp(theme: CliTheme, verb: "link" | "unlink"): string {
   ];
 
   return [
-    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.command(verb)} ${theme.accent("<target>")} ${theme.accent("<model>")}`,
+    `${theme.heading("Usage:")} umr ${verb} <target> <model>`,
     "",
     verb === "link"
       ? "Link a model to a target app."
       : "Remove a model link from a target app.",
     "",
     theme.heading("Targets:"),
-    ...formatHelpRows(TARGET_ROWS, theme, { usageStyle: "plain" }),
+    ...formatHelpRows(TARGET_ROWS, theme, {
+      commandStyle: "plain",
+      usageStyle: "plain",
+    }),
     "",
     theme.heading("Options:"),
-    ...formatHelpRows(optionRows, theme, { usageStyle: "plain" }),
+    ...formatHelpRows(optionRows, theme, {
+      commandStyle: "flag",
+      usageStyle: "plain",
+    }),
     "",
   ].join("\n");
 }

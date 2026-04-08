@@ -182,27 +182,24 @@ Commands:
   add        <source>          Add a model to UMR
              hf <repo>         Add a model from Hugging Face
              <path>            Add a local model
+
   link       <target> <model>  Link a model to a target app
+             lmstudio <model>  Link model to LM Studio
+             ollama <model>    Link model to Ollama
+             jan <model>       Link model to Jan
+             To see the full list, run \`umr link --help\`
   unlink     <target> <model>  Remove a model link from a target app
+
   list                         List tracked models
   show       <model>           Show model details
   remove     <model>           Remove a model from UMR
   check                        Check UMR state and target links
+
   <command>  --help            Print help text for command
 
-Sources:
-  <path>  Local file or directory
-  hf      Hugging Face repo
-
-Targets:
-  lmstudio  LM Studio
-  ollama    Ollama
-  jan       Jan
-
 Flags:
-  -v, --verbose  Show detailed progress
-  -h, --help     Print help
-  --version      Print version
+  --version  Print version
+  --help     Print help
 `);
 });
 
