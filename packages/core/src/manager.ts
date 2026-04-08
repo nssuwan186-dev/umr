@@ -87,6 +87,19 @@ function describeModelHealth(
   return rootExists && entryExists ? "ok" : "missing";
 }
 
+function formatTargetLabel(target: string): string {
+  switch (target) {
+    case "lmstudio":
+      return "LM Studio";
+    case "ollama":
+      return "Ollama";
+    case "jan":
+      return "Jan";
+    default:
+      return target;
+  }
+}
+
 export class VirtualModelRegistry {
   readonly registry: Registry;
   readonly store: ModelStore;
@@ -271,7 +284,7 @@ export class VirtualModelRegistry {
     return this.resolveModelDetails(selector);
   }
 
-  async register(
+  async link(
     client: string,
     selector: string,
     context?: OperationContext,
@@ -279,10 +292,7 @@ export class VirtualModelRegistry {
     const registrar = this.registrarAdapters.get(client);
     await emitInfo(context?.reporter, `Resolving model ${selector}`);
     const model = this.getModel(selector);
-    await emitInfo(
-      context?.reporter,
-      `Registering ${model.name} with ${client}`,
-    );
+    await emitInfo(context?.reporter, `Linking ${model.name} to ${client}`);
     const result = await registrar.register(model, context);
     const registration = this.registry.upsertRegistration(
       model.id,
@@ -292,12 +302,20 @@ export class VirtualModelRegistry {
     );
     await emitSuccess(
       context?.reporter,
-      `Registered ${model.name} with ${client} as ${registration.clientRef}`,
+      `Linked ${model.name} to ${client} as ${registration.clientRef}`,
     );
     return registration;
   }
 
-  async unregister(
+  async register(
+    client: string,
+    selector: string,
+    context?: OperationContext,
+  ): Promise<RegistrationRecord> {
+    return this.link(client, selector, context);
+  }
+
+  async unlink(
     client: string,
     selector: string,
     context?: OperationContext,
@@ -307,25 +325,30 @@ export class VirtualModelRegistry {
     const model = this.getModel(selector);
     const registration = this.registry.getRegistration(model.id, client);
     if (!registration) {
-      throw new ManagerError(
-        `Model ${selector} is not registered with ${client}`,
-        {
-          code: "missing-registration",
-          exitCode: 2,
-        },
-      );
+      throw new ManagerError(`Model ${selector} is not linked to ${client}`, {
+        code: "missing-registration",
+        exitCode: 2,
+      });
     }
 
     await emitInfo(
       context?.reporter,
-      `Removing ${client} registration for ${model.name}`,
+      `Removing ${client} link for ${model.name}`,
     );
     await registrar.unregister(model, registration, context);
     this.registry.deleteRegistration(model.id, client);
     await emitSuccess(
       context?.reporter,
-      `Removed ${client} registration for ${model.name}`,
+      `Removed ${client} link for ${model.name}`,
     );
+  }
+
+  async unregister(
+    client: string,
+    selector: string,
+    context?: OperationContext,
+  ): Promise<void> {
+    return this.unlink(client, selector, context);
   }
 
   async remove(selector: string, context?: OperationContext): Promise<void> {
@@ -333,7 +356,7 @@ export class VirtualModelRegistry {
     const model = this.getModel(selector);
     if (model.registrations.length > 0) {
       throw new ManagerError(
-        `Cannot remove ${selector} while client registrations exist`,
+        `Cannot remove ${selector} while target links exist`,
         {
           code: "model-still-registered",
           exitCode: 2,
@@ -433,6 +456,7 @@ export class VirtualModelRegistry {
       const registrations = this.registry.listRegistrations(model.id);
       for (const registration of registrations) {
         const registrar = this.registrarAdapters.get(registration.client);
+        const targetLabel = formatTargetLabel(registration.client);
         const details = this.getModel(model.ref);
         const health = await registrar.check(details, registration, {
           reporter: options?.reporter,
@@ -449,11 +473,11 @@ export class VirtualModelRegistry {
             this.registry.deleteRegistrationById(registration.id);
             repairs.push({
               ref: model.name,
-              message: `Cleared stale ${registration.client} registration.`,
+              message: `Removed stale ${targetLabel} link.`,
             });
             await emitWarning(
               options?.reporter,
-              `Cleared stale ${registration.client} registration for ${model.name}`,
+              `Removed stale ${targetLabel} link for ${model.name}`,
             );
           }
         }

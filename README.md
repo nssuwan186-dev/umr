@@ -65,21 +65,21 @@ After adding, check your available models
 # Output depends on which quant you chose
 vmr list
 
-# NAME                 SIZE      CLIENTS       STATUS
+# NAME                 SIZE      TARGETS       STATUS
 # gemma-4-e2b-it-q8-0  4.63 GB   -             ok
 ```
 
 Now, you can use your available model with your favorite apps!
 
 ```bash
-# Register the model in LM Studio
-vmr register lmstudio gemma-4-e2b-it-q8-0
+# Link the model to LM Studio
+vmr link lmstudio gemma-4-e2b-it-q8-0
 
-# Register the model in ollama
-vmr register ollama gemma-4-e2b-it-q8-0
+# Link the model to Ollama
+vmr link ollama gemma-4-e2b-it-q8-0
 
-# Register the model in Jan
-vmr register jan gemma-4-e2b-it-q8-0
+# Link the model to Jan
+vmr link jan gemma-4-e2b-it-q8-0
 ```
 
 Or, get the GGUF path to use with other AI runtimes

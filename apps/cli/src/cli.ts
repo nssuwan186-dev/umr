@@ -56,10 +56,10 @@ Commands:
   add hf <repo>               Add a model from Hugging Face
   list                        List tracked models
   show <model>                Show model details
-  register <client> <model>   Register a model with a client
-  unregister <client> <model> Remove a client registration
+  link <target> <model>       Link a model to a target app
+  unlink <target> <model>     Remove a model link from a target app
   remove <model>              Remove a model from VMR
-  check                       Check VMR state and registrations
+  check                       Check VMR state and target links
 
 Flags:
   -v, --verbose               Show detailed progress
@@ -115,7 +115,7 @@ function formatSource(model: ModelDetails): string {
   return model.sources[0]?.kind ?? "unknown";
 }
 
-function formatClients(model: ModelDetails): string {
+function formatTargets(model: ModelDetails): string {
   if (model.registrations.length === 0) {
     return "none";
   }
@@ -167,19 +167,19 @@ function formatCheckIssue(issue: CheckIssue): string {
   }
 
   if (issue.code === "lmstudio:missing-target-path") {
-    return "LM Studio registration is stale.";
+    return "LM Studio link is stale.";
   }
 
   if (issue.code.startsWith("lmstudio:")) {
-    return "LM Studio registration needs attention.";
+    return "LM Studio link needs attention.";
   }
 
   if (issue.code.startsWith("ollama:")) {
-    return "Ollama registration needs attention.";
+    return "Ollama link needs attention.";
   }
 
   if (issue.code.startsWith("jan:")) {
-    return "Jan registration needs attention.";
+    return "Jan link needs attention.";
   }
 
   return "VMR detected an issue that requires attention.";
@@ -286,13 +286,13 @@ function printList(
     ...rows.map((row) => row.name.length),
   );
   const clientWidth = Math.max(
-    "CLIENTS".length,
+    "TARGETS".length,
     ...rows.map((row) =>
       row.registrations.length > 0 ? row.registrations.join(",").length : 1,
     ),
   );
   write(
-    `${"NAME".padEnd(nameWidth)}  ${"SIZE".padEnd(8)}  ${"CLIENTS".padEnd(clientWidth)}  STATUS`,
+    `${"NAME".padEnd(nameWidth)}  ${"SIZE".padEnd(8)}  ${"TARGETS".padEnd(clientWidth)}  STATUS`,
   );
   for (const row of rows) {
     const registrations =
@@ -777,36 +777,34 @@ export async function runCli(
       stdout(`  Path      ${model.entryPath}`);
       stdout(`  Size      ${humanizeBytes(model.totalSizeBytes)}`);
       stdout(`  Source    ${formatSource(model)}`);
-      stdout(`  Clients   ${formatClients(model)}`);
+      stdout(`  Targets   ${formatTargets(model)}`);
     });
 
   program
-    .command("register")
-    .description("Register a model with a client")
-    .argument("<client>", "Client name")
+    .command("link")
+    .description("Link a model to a target app")
+    .argument("<target>", "Target name")
     .argument("<model>", "Model selector")
-    .action(async (client: string, selector: string) => {
+    .action(async (target: string, selector: string) => {
       const registry = getManager();
       const model = registry.getModel(selector);
-      await registry.register(client, selector, {
+      await registry.link(target, selector, {
         reporter,
         streamSink,
       });
-      stdout(`Registered ${model.name} with ${formatClientName(client)}`);
+      stdout(`Linked ${model.name} to ${formatClientName(target)}`);
     });
 
   program
-    .command("unregister")
-    .description("Remove a client registration")
-    .argument("<client>", "Client name")
+    .command("unlink")
+    .description("Remove a model link from a target app")
+    .argument("<target>", "Target name")
     .argument("<model>", "Model selector")
-    .action(async (client: string, selector: string) => {
+    .action(async (target: string, selector: string) => {
       const registry = getManager();
       const model = registry.getModel(selector);
-      await registry.unregister(client, selector, { reporter, streamSink });
-      stdout(
-        `Removed ${formatClientName(client)} registration for ${model.name}`,
-      );
+      await registry.unlink(target, selector, { reporter, streamSink });
+      stdout(`Unlinked ${model.name} from ${formatClientName(target)}`);
     });
 
   program

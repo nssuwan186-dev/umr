@@ -137,6 +137,10 @@ function createFakeManager(options?: {
       clientRef: `${client}:${ref}`,
     }),
     unregister: async () => {},
+    link: async (client: string, ref: string) => ({
+      clientRef: `${client}:${ref}`,
+    }),
+    unlink: async () => {},
     remove: async () => {},
     check: async () =>
       options?.checkResult ?? {
@@ -178,10 +182,10 @@ Commands:
   add hf <repo>               Add a model from Hugging Face
   list                        List tracked models
   show <model>                Show model details
-  register <client> <model>   Register a model with a client
-  unregister <client> <model> Remove a client registration
+  link <target> <model>       Link a model to a target app
+  unlink <target> <model>     Remove a model link from a target app
   remove <model>              Remove a model from VMR
-  check                       Check VMR state and registrations
+  check                       Check VMR state and target links
 
 Flags:
   -v, --verbose               Show detailed progress
@@ -232,7 +236,7 @@ test("list prints a modern table with humanized sizes", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME        SIZE      CLIENTS   STATUS",
+    "NAME        SIZE      TARGETS   STATUS",
     "tiny-model  123 B     lmstudio  ok",
   ]);
 });
@@ -252,7 +256,7 @@ test("show prints a compact detail block", async () => {
     "  Path      /tmp/model-root/tiny.gguf",
     "  Size      123 B",
     "  Source    local path",
-    "  Clients   lmstudio",
+    "  Targets   lmstudio",
   ]);
 });
 
@@ -580,9 +584,9 @@ test("add ./hf is treated as a local path, not the hf source keyword", async () 
   expect(manager.calls).toEqual([{ kind: "path", input: { path: "./hf" } }]);
 });
 
-test("register and unregister use clean client-facing wording", async () => {
+test("link and unlink use clean target-facing wording", async () => {
   const stdoutLines: string[] = [];
-  const code = await runCli(["register", "lmstudio", "tiny-model"], {
+  const code = await runCli(["link", "lmstudio", "tiny-model"], {
     manager: createFakeManager() as never,
     stdout: (line) => stdoutLines.push(line),
     stderr: () => {},
@@ -591,24 +595,19 @@ test("register and unregister use clean client-facing wording", async () => {
   });
 
   expect(code).toBe(0);
-  expect(stdoutLines).toEqual(["Registered tiny-model with LM Studio"]);
+  expect(stdoutLines).toEqual(["Linked tiny-model to LM Studio"]);
 
   stdoutLines.length = 0;
-  const unregisterCode = await runCli(
-    ["unregister", "lmstudio", "tiny-model"],
-    {
-      manager: createFakeManager() as never,
-      stdout: (line) => stdoutLines.push(line),
-      stderr: () => {},
-      stdoutRaw: () => {},
-      stderrRaw: () => {},
-    },
-  );
+  const unregisterCode = await runCli(["unlink", "lmstudio", "tiny-model"], {
+    manager: createFakeManager() as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
 
   expect(unregisterCode).toBe(0);
-  expect(stdoutLines).toEqual([
-    "Removed LM Studio registration for tiny-model",
-  ]);
+  expect(stdoutLines).toEqual(["Unlinked tiny-model from LM Studio"]);
 });
 
 test("remove uses clean success wording", async () => {
@@ -687,7 +686,7 @@ test("check groups issues and suggests safe repairs when available", async () =>
     "  Missing model file. Re-add the model or remove it from VMR.",
     "",
     "zephyr-smol-llama-100m-sft-full-q2-k (Fixable)",
-    "  LM Studio registration is stale.",
+    "  LM Studio link is stale.",
     "",
     "Run `vmr check --fix` to apply safe repairs.",
   ]);
@@ -714,7 +713,7 @@ test("check --fix shows fixed repairs and remaining issues", async () => {
         repairs: [
           {
             ref: "zephyr-smol-llama-100m-sft-full-q2-k",
-            message: "Cleared stale LM Studio registration.",
+            message: "Removed stale LM Studio link.",
           },
         ],
       },
@@ -731,7 +730,7 @@ test("check --fix shows fixed repairs and remaining issues", async () => {
     "",
     "Fixed",
     "  zephyr-smol-llama-100m-sft-full-q2-k",
-    "    Cleared stale LM Studio registration.",
+    "    Removed stale LM Studio link.",
     "",
     "tiny-test-model",
     "  Missing model file. Re-add the model or remove it from VMR.",
