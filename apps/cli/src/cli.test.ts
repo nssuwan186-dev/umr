@@ -410,7 +410,7 @@ test("add local path stays quiet by default while keeping final output on stdout
   ]);
   expect(stderrLines).toEqual([]);
   expect(stdoutLines).toEqual([
-    "Added tiny-model",
+    "Added model tiny-model to UMR",
     "",
     "Path: /tmp/model-root/tiny.gguf",
   ]);
@@ -468,7 +468,7 @@ test("add hf with --file and --yes dispatches to the explicit hf adapter", async
   ]);
   expect(stderrRaw).toContain("hf-progress");
   expect(stdoutLines).toEqual([
-    "Added tiny-model",
+    "Added model tiny-model to UMR",
     "",
     "Path: /tmp/model-root/tiny.gguf",
   ]);
@@ -599,7 +599,7 @@ test("existing tracked hf source skips confirmation and add", async () => {
   expect(confirmCalls).toBe(0);
   expect(manager.calls).toEqual([]);
   expect(stdoutLines).toEqual([
-    "Already added existing-model",
+    "Model existing-model is already in UMR",
     "",
     "Path: /tmp/existing-model/tiny.gguf",
   ]);
@@ -718,7 +718,7 @@ test("link and unlink use clean target-facing wording", async () => {
   });
 
   expect(code).toBe(0);
-  expect(stdoutLines).toEqual(["Linked tiny-model to LM Studio"]);
+  expect(stdoutLines).toEqual(["Linked model tiny-model to LM Studio"]);
 
   stdoutLines.length = 0;
   const unlinkCode = await runCli(["unlink", "lmstudio", "tiny-model"], {
@@ -730,7 +730,7 @@ test("link and unlink use clean target-facing wording", async () => {
   });
 
   expect(unlinkCode).toBe(0);
-  expect(stdoutLines).toEqual(["Unlinked tiny-model from LM Studio"]);
+  expect(stdoutLines).toEqual(["Unlinked model tiny-model from LM Studio"]);
 });
 
 test("remove uses clean success wording", async () => {
@@ -744,7 +744,7 @@ test("remove uses clean success wording", async () => {
   });
 
   expect(code).toBe(0);
-  expect(stdoutLines).toEqual(["Removed tiny-model"]);
+  expect(stdoutLines).toEqual(["Removed model tiny-model from UMR"]);
 });
 
 test("check clean state prints a terse summary", async () => {

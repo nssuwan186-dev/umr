@@ -504,6 +504,17 @@ function formatClientName(client: string): string {
   }
 }
 
+function formatAddedModelMessage(
+  theme: CliTheme,
+  options: { name: string; alreadyInUMR?: boolean },
+): string {
+  if (options.alreadyInUMR) {
+    return `${theme.accent("Model")} ${theme.model(options.name)} ${theme.accent("is already in UMR")}`;
+  }
+
+  return `${theme.success("Added model")} ${theme.model(options.name)} ${theme.success("to UMR")}`;
+}
+
 function formatGGUFFiles(files: HFSelectableFile[], theme: CliTheme): string {
   const width = Math.max(...files.map((file) => file.file.length), 0);
   return files
@@ -1215,7 +1226,10 @@ export async function runCli(
           if (!shouldInstall) {
             if (selected.trackedModel) {
               stdout(
-                `${theme.accent("Already added")} ${theme.model(selected.trackedModel.name)}`,
+                formatAddedModelMessage(theme, {
+                  name: selected.trackedModel.name,
+                  alreadyInUMR: true,
+                }),
               );
               stdout("");
               stdout(
@@ -1231,7 +1245,10 @@ export async function runCli(
             { reporter, streamSink },
           );
           stdout(
-            `${result.status === "existing" ? theme.accent("Already added") : theme.success("Added")} ${theme.model(result.model.name)}`,
+            formatAddedModelMessage(theme, {
+              name: result.model.name,
+              alreadyInUMR: result.status === "existing",
+            }),
           );
           stdout("");
           stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
@@ -1251,7 +1268,10 @@ export async function runCli(
           { reporter, streamSink },
         );
         stdout(
-          `${result.status === "existing" ? theme.accent("Already added") : theme.success("Added")} ${theme.model(result.model.name)}`,
+          formatAddedModelMessage(theme, {
+            name: result.model.name,
+            alreadyInUMR: result.status === "existing",
+          }),
         );
         stdout("");
         stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
@@ -1312,7 +1332,7 @@ export async function runCli(
         streamSink,
       });
       stdout(
-        `${theme.success("Linked")} ${theme.model(model.name)} to ${theme.accent(formatClientName(target))}`,
+        `${theme.success("Linked model")} ${theme.model(model.name)} ${theme.success("to")} ${theme.accent(formatClientName(target))}`,
       );
     });
 
@@ -1326,7 +1346,7 @@ export async function runCli(
       const model = registry.getModel(selector);
       await registry.unlink(target, selector, { reporter, streamSink });
       stdout(
-        `${theme.success("Unlinked")} ${theme.model(model.name)} from ${theme.accent(formatClientName(target))}`,
+        `${theme.success("Unlinked model")} ${theme.model(model.name)} ${theme.success("from")} ${theme.accent(formatClientName(target))}`,
       );
     });
 
@@ -1338,7 +1358,9 @@ export async function runCli(
       const registry = getManager();
       const model = registry.getModel(selector);
       await registry.remove(selector, { reporter, streamSink });
-      stdout(`${theme.success("Removed")} ${theme.model(model.name)}`);
+      stdout(
+        `${theme.success("Removed model")} ${theme.model(model.name)} ${theme.success("from UMR")}`,
+      );
     });
 
   program
