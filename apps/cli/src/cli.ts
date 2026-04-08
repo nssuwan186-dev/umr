@@ -130,6 +130,11 @@ function formatHelpRows(
 function renderRootHelp(theme: CliTheme): string {
   const flagRows = [
     {
+      command: "--verbose",
+      usage: "",
+      description: "Show detailed progress",
+    },
+    {
       command: "--version",
       usage: "",
       description: "Print version",
@@ -263,6 +268,32 @@ function renderRootHelp(theme: CliTheme): string {
   ].join("\n");
 }
 
+function renderSimpleHelp(options: {
+  theme: CliTheme;
+  usage: string[];
+  description: string;
+  options?: HelpRow[];
+}): string {
+  const { theme } = options;
+  const lines = options.usage.map((line, index) =>
+    index === 0 ? `${theme.heading("Usage:")} ${line}` : `       ${line}`,
+  );
+  lines.push("", options.description);
+
+  if (options.options && options.options.length > 0) {
+    lines.push("", theme.heading("Flags:"));
+    lines.push(
+      ...formatHelpRows(options.options, theme, {
+        commandStyle: "flag",
+        usageStyle: "plain",
+      }),
+    );
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
 function renderAddHelp(theme: CliTheme): string {
   const optionRows = [
     {
@@ -288,20 +319,18 @@ function renderAddHelp(theme: CliTheme): string {
   ];
 
   return [
-    `${theme.heading("Usage:")} umr add <path>`,
-    "       umr add hf <repo> [--file <name>] [--revision <rev>] [--yes]",
-    "",
-    "Add a model from a local path or Hugging Face.",
-    "",
+    renderSimpleHelp({
+      theme,
+      usage: [
+        "umr add <path>",
+        "umr add hf <repo> [--file <name>] [--revision <rev>] [--yes]",
+      ],
+      description: "Add a model from a local path or Hugging Face.",
+      options: optionRows,
+    }),
     theme.heading("Sources:"),
     ...formatHelpRows(SOURCE_ROWS, theme, {
       commandStyle: "plain",
-      usageStyle: "plain",
-    }),
-    "",
-    theme.heading("Options:"),
-    ...formatHelpRows(optionRows, theme, {
-      commandStyle: "flag",
       usageStyle: "plain",
     }),
     "",
@@ -318,25 +347,92 @@ function renderLinkHelp(theme: CliTheme, verb: "link" | "unlink"): string {
   ];
 
   return [
-    `${theme.heading("Usage:")} umr ${verb} <target> <model>`,
-    "",
-    verb === "link"
-      ? "Link a model to a target app."
-      : "Remove a model link from a target app.",
-    "",
+    renderSimpleHelp({
+      theme,
+      usage: [`umr ${verb} <target> <model>`],
+      description:
+        verb === "link"
+          ? "Link a model to a target app."
+          : "Remove a model link from a target app.",
+      options: optionRows,
+    }),
     theme.heading("Targets:"),
     ...formatHelpRows(TARGET_ROWS, theme, {
       commandStyle: "plain",
       usageStyle: "plain",
     }),
     "",
-    theme.heading("Options:"),
-    ...formatHelpRows(optionRows, theme, {
-      commandStyle: "flag",
-      usageStyle: "plain",
-    }),
-    "",
   ].join("\n");
+}
+
+function renderListHelp(theme: CliTheme): string {
+  return renderSimpleHelp({
+    theme,
+    usage: ["umr list"],
+    description: "List tracked models.",
+    options: [
+      {
+        command: "--help",
+        usage: "",
+        description: "Print help",
+      },
+    ],
+  });
+}
+
+function renderShowHelp(theme: CliTheme): string {
+  return renderSimpleHelp({
+    theme,
+    usage: ["umr show <model> [--path]"],
+    description: "Show details for a tracked model.",
+    options: [
+      {
+        command: "--path",
+        usage: "",
+        description: "Print only the model entry path",
+      },
+      {
+        command: "--help",
+        usage: "",
+        description: "Print help",
+      },
+    ],
+  });
+}
+
+function renderRemoveHelp(theme: CliTheme): string {
+  return renderSimpleHelp({
+    theme,
+    usage: ["umr remove <model>"],
+    description: "Remove a model from UMR.",
+    options: [
+      {
+        command: "--help",
+        usage: "",
+        description: "Print help",
+      },
+    ],
+  });
+}
+
+function renderCheckHelp(theme: CliTheme): string {
+  return renderSimpleHelp({
+    theme,
+    usage: ["umr check [--fix]"],
+    description: "Check UMR state and target links.",
+    options: [
+      {
+        command: "--fix",
+        usage: "",
+        description: "Apply safe repairs",
+      },
+      {
+        command: "--help",
+        usage: "",
+        description: "Print help",
+      },
+    ],
+  });
 }
 
 function humanizeBytes(size: number): string {
@@ -914,6 +1010,42 @@ function shouldPrintCommandHelp(argv: string[], command: string): boolean {
   );
 }
 
+function getCustomHelp(argv: string[], theme: CliTheme): string | null {
+  if (shouldPrintRootHelp(argv)) {
+    return renderRootHelp(theme);
+  }
+
+  if (shouldPrintAddHelp(argv)) {
+    return renderAddHelp(theme);
+  }
+
+  if (shouldPrintCommandHelp(argv, "link")) {
+    return renderLinkHelp(theme, "link");
+  }
+
+  if (shouldPrintCommandHelp(argv, "unlink")) {
+    return renderLinkHelp(theme, "unlink");
+  }
+
+  if (shouldPrintCommandHelp(argv, "list")) {
+    return renderListHelp(theme);
+  }
+
+  if (shouldPrintCommandHelp(argv, "show")) {
+    return renderShowHelp(theme);
+  }
+
+  if (shouldPrintCommandHelp(argv, "remove")) {
+    return renderRemoveHelp(theme);
+  }
+
+  if (shouldPrintCommandHelp(argv, "check")) {
+    return renderCheckHelp(theme);
+  }
+
+  return null;
+}
+
 export async function runCli(
   argv: string[],
   options?: {
@@ -963,26 +1095,9 @@ export async function runCli(
   };
   let exitCode = 0;
 
-  if (shouldPrintRootHelp(argv)) {
-    stdoutRaw.write(renderRootHelp(theme));
-    stdoutRaw.flush();
-    return 0;
-  }
-
-  if (shouldPrintAddHelp(argv)) {
-    stdoutRaw.write(renderAddHelp(theme));
-    stdoutRaw.flush();
-    return 0;
-  }
-
-  if (shouldPrintCommandHelp(argv, "link")) {
-    stdoutRaw.write(renderLinkHelp(theme, "link"));
-    stdoutRaw.flush();
-    return 0;
-  }
-
-  if (shouldPrintCommandHelp(argv, "unlink")) {
-    stdoutRaw.write(renderLinkHelp(theme, "unlink"));
+  const customHelp = getCustomHelp(argv, theme);
+  if (customHelp) {
+    stdoutRaw.write(customHelp);
     stdoutRaw.flush();
     return 0;
   }

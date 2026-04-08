@@ -198,6 +198,7 @@ Commands:
   <command>  --help            Print help text for command
 
 Flags:
+  --verbose  Show detailed progress
   --version  Print version
   --help     Print help
 `);
@@ -225,15 +226,73 @@ test("add help uses custom text and does not initialize the manager", async () =
 
 Add a model from a local path or Hugging Face.
 
-Sources:
-  <path>  Local file or directory
-  hf      Hugging Face repo
-
-Options:
+Flags:
   --file <name>     Choose a GGUF file from the repo
   --revision <rev>  Resolve a branch, tag, or commit
   -y, --yes         Skip download confirmation
   -h, --help        Print help
+
+Sources:
+  <path>  Local file or directory
+  hf      Hugging Face repo
+`);
+});
+
+test("link help uses custom text and does not initialize the manager", async () => {
+  const stdoutRaw: string[] = [];
+  let createManagerCalls = 0;
+
+  const code = await runCli(["link", "--help"], {
+    createManager: () => {
+      createManagerCalls += 1;
+      throw new Error("manager should not be created");
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(createManagerCalls).toBe(0);
+  expect(stdoutRaw.join("")).toBe(`Usage: umr link <target> <model>
+
+Link a model to a target app.
+
+Flags:
+  -h, --help  Print help
+
+Targets:
+  lmstudio  LM Studio
+  ollama    Ollama
+  jan       Jan
+`);
+});
+
+test("show help uses custom text and does not initialize the manager", async () => {
+  const stdoutRaw: string[] = [];
+  let createManagerCalls = 0;
+
+  const code = await runCli(["show", "--help"], {
+    createManager: () => {
+      createManagerCalls += 1;
+      throw new Error("manager should not be created");
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(createManagerCalls).toBe(0);
+  expect(stdoutRaw.join("")).toBe(`Usage: umr show <model> [--path]
+
+Show details for a tracked model.
+
+Flags:
+  --path  Print only the model entry path
+  --help  Print help
 `);
 });
 
