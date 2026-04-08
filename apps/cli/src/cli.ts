@@ -725,10 +725,17 @@ function printList(
   }
 
   const totalBytes = rows.reduce((sum, row) => sum + row.totalSizeBytes, 0);
+  const savedBytes = rows.reduce(
+    (sum, row) => sum + row.totalSizeBytes * row.registrations.length,
+    0,
+  );
   write("");
   write(
     `Found ${rows.length} tracked ${rows.length === 1 ? "model" : "models"} (total ${humanizeBytes(totalBytes)} on disk)`,
   );
+  if (savedBytes > 0) {
+    write(theme.success(`${humanizeBytes(savedBytes)} saved with UMR`));
+  }
 }
 
 function createDefaultPromptClient(): PromptClient {

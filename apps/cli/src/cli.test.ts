@@ -346,6 +346,33 @@ test("list prints a modern table with humanized sizes", async () => {
     "tiny-model  123 B  LM Studio  ok",
     "",
     "Found 1 tracked model (total 123 B on disk)",
+    "123 B saved with UMR",
+  ]);
+});
+
+test("list omits the saved footer when no targets are linked", async () => {
+  const lines: string[] = [];
+  const code = await runCli(["list"], {
+    manager: createFakeManager({
+      listRows: [
+        {
+          name: "tiny-model",
+          totalSizeBytes: 123,
+          registrations: [],
+          health: "ok",
+        },
+      ],
+    }) as never,
+    stdout: (line) => lines.push(line),
+    stderr: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(lines).toEqual([
+    "NAME        SIZE   TARGETS  STATUS",
+    "tiny-model  123 B  -        ok",
+    "",
+    "Found 1 tracked model (total 123 B on disk)",
   ]);
 });
 
