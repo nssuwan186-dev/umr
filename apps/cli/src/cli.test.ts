@@ -952,8 +952,8 @@ test("check groups issues and suggests safe repairs when available", async () =>
     "tiny-test-model",
     "  Missing model file. Re-add the model or remove it from UMR.",
     "",
-    "zephyr-smol-llama-100m-sft-full-q2-k (Fixable)",
-    "  LM Studio link is stale.",
+    "zephyr-smol-llama-100m-sft-full-q2-k",
+    "  LM Studio link is missing from disk. (Fixable)",
     "",
     "Run `umr check --fix` to apply safe repairs.",
   ]);
@@ -980,7 +980,7 @@ test("check --fix shows fixed repairs and remaining issues", async () => {
         repairs: [
           {
             ref: "zephyr-smol-llama-100m-sft-full-q2-k",
-            message: "Removed stale LM Studio link.",
+            message: "Removed stale LM Studio link from UMR.",
           },
         ],
       },
@@ -997,12 +997,80 @@ test("check --fix shows fixed repairs and remaining issues", async () => {
     "",
     "Fixed",
     "  zephyr-smol-llama-100m-sft-full-q2-k",
-    "    Removed stale LM Studio link.",
+    "    Removed stale LM Studio link from UMR.",
     "",
     "tiny-test-model",
     "  Missing model file. Re-add the model or remove it from UMR.",
   ]);
   expect(stderrLines).toEqual([]);
+});
+
+test("check --fix omits issues that were repaired", async () => {
+  const stdoutLines: string[] = [];
+  const code = await runCli(["check", "--fix"], {
+    manager: createFakeManager({
+      checkResult: {
+        ok: true,
+        fixed: true,
+        checkedModels: 1,
+        issues: [],
+        repairs: [
+          {
+            ref: "gemma-4-e2b-it-q8-0",
+            message: "Removed stale Jan link from UMR.",
+          },
+          {
+            ref: "gemma-4-e2b-it-q8-0",
+            message: "Removed stale LM Studio link from UMR.",
+          },
+        ],
+      },
+    }) as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stdoutLines).toEqual([
+    "Checked 1 model. Fixed 2 issues. No issues remain.",
+    "",
+    "Fixed",
+    "  gemma-4-e2b-it-q8-0",
+    "    Removed stale Jan link from UMR.",
+    "    Removed stale LM Studio link from UMR.",
+  ]);
+});
+
+test("check summary is colored yellow when all remaining issues are fixable", async () => {
+  const stdoutLines: string[] = [];
+  const code = await runCli(["check"], {
+    color: true,
+    manager: createFakeManager({
+      checkResult: {
+        ok: false,
+        fixed: false,
+        checkedModels: 1,
+        issues: [
+          {
+            severity: "warning",
+            ref: "tiny-model",
+            code: "lmstudio:missing-target-path",
+            fixable: true,
+          },
+        ],
+        repairs: [],
+      },
+    }) as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(3);
+  expect(stdoutLines[0]).toContain("\u001b[");
 });
 
 test("missing command args surface a clean commander error", async () => {

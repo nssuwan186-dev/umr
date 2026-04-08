@@ -26,9 +26,20 @@ export interface StreamSink {
   stderr?(chunk: string): void | Promise<void>;
 }
 
+export interface TransferProgressSink {
+  start(task: { label: string; totalBytes: number }): void | Promise<void>;
+  update(task: {
+    label: string;
+    completedBytes: number;
+    totalBytes: number;
+  }): void | Promise<void>;
+  finish(task: { label: string; totalBytes: number }): void | Promise<void>;
+}
+
 export interface OperationContext {
   reporter?: ProgressReporter;
   streamSink?: StreamSink;
+  transferProgress?: TransferProgressSink;
 }
 
 export interface SourceDescriptor {

@@ -1,9 +1,9 @@
-import { copyFile, link, readdir, rename, stat } from "node:fs/promises";
+import { link, open, readdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { ensureDir, pathExists, removeIfExists } from "./fs";
 import type { DataPaths } from "./paths";
-import type { SourceMember, StoreStrategy } from "./types";
+import type { OperationContext, SourceMember, StoreStrategy } from "./types";
 
 function resolveMemberPath(rootPath: string, relPath: string): string {
   return path.join(rootPath, ...relPath.split("/"));
@@ -11,6 +11,51 @@ function resolveMemberPath(rootPath: string, relPath: string): string {
 
 export class ModelStore {
   constructor(private readonly paths: DataPaths) {}
+
+  private async copyMemberWithProgress(
+    member: SourceMember,
+    targetPath: string,
+    context?: OperationContext,
+  ): Promise<void> {
+    const totalBytes =
+      typeof member.sizeBytes === "number"
+        ? member.sizeBytes
+        : await stat(member.sourcePath).then((details) => details.size);
+    const label = path.basename(member.relPath);
+    const sourceHandle = await open(member.sourcePath, "r");
+    let targetHandle: Awaited<ReturnType<typeof open>> | undefined;
+    const buffer = Buffer.alloc(1024 * 1024);
+    let completedBytes = 0;
+
+    try {
+      targetHandle = await open(targetPath, "w");
+      await context?.transferProgress?.start({ label, totalBytes });
+
+      while (true) {
+        const { bytesRead } = await sourceHandle.read(
+          buffer,
+          0,
+          buffer.length,
+          null,
+        );
+        if (bytesRead === 0) {
+          break;
+        }
+
+        await targetHandle.write(buffer.subarray(0, bytesRead));
+        completedBytes += bytesRead;
+        await context?.transferProgress?.update({
+          label,
+          completedBytes,
+          totalBytes,
+        });
+      }
+    } finally {
+      await sourceHandle.close();
+      await targetHandle?.close();
+      await context?.transferProgress?.finish({ label, totalBytes });
+    }
+  }
 
   async ensureLayout(): Promise<void> {
     await ensureDir(this.paths.root);
@@ -27,6 +72,7 @@ export class ModelStore {
     members: SourceMember[],
     contentDigest: string,
     strategy: StoreStrategy,
+    context?: OperationContext,
   ): Promise<{ rootPath: string; method: string }> {
     await this.ensureLayout();
 
@@ -61,7 +107,7 @@ export class ModelStore {
         }
 
         if (!copied) {
-          await copyFile(member.sourcePath, targetPath);
+          await this.copyMemberWithProgress(member, targetPath, context);
           methods.add("copy");
         }
       }

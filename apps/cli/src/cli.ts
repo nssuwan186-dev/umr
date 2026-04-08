@@ -10,10 +10,12 @@ import {
   type ModelDetails,
   type ProgressEvent,
   type StreamSink,
+  type TransferProgressSink,
   type UnifiedModelRegistry,
   asManagerError,
   createDefaultUMR,
 } from "@umr/core";
+import cliProgress from "cli-progress";
 import { Command, CommanderError } from "commander";
 import { type CliTheme, createTheme } from "./theme";
 
@@ -45,6 +47,16 @@ interface PromptClient {
 interface BufferedRawWriter {
   write(chunk: string): void;
   flush(): void;
+}
+
+interface ProgressBarHandle {
+  start(
+    total: number,
+    startValue: number,
+    payload?: Record<string, string>,
+  ): void;
+  update(value: number, payload?: Record<string, string>): void;
+  stop(): void;
 }
 
 const UMR_VERSION = "0.1.0";
@@ -561,19 +573,39 @@ function formatCheckIssue(issue: CheckIssue): string {
   }
 
   if (issue.code === "lmstudio:missing-target-path") {
-    return "LM Studio link is stale.";
+    return "LM Studio link is missing from disk.";
+  }
+
+  if (issue.code === "lmstudio:size-mismatch") {
+    return "LM Studio link no longer matches the model size.";
+  }
+
+  if (issue.code === "lmstudio:hash-mismatch") {
+    return "LM Studio link no longer matches the model contents.";
   }
 
   if (issue.code.startsWith("lmstudio:")) {
-    return "LM Studio link needs attention.";
+    return "LM Studio link no longer matches UMR.";
   }
 
   if (issue.code.startsWith("ollama:")) {
-    return "Ollama link needs attention.";
+    return "Ollama model state no longer matches UMR.";
+  }
+
+  if (issue.code === "jan:missing-jan-config-path") {
+    return "Jan config path is missing.";
+  }
+
+  if (issue.code === "jan:missing-jan-model-config") {
+    return "Jan config is missing.";
+  }
+
+  if (issue.code === "jan:stale-jan-model-config") {
+    return "Jan config no longer matches the model.";
   }
 
   if (issue.code.startsWith("jan:")) {
-    return "Jan link needs attention.";
+    return "Jan config no longer matches UMR.";
   }
 
   return "UMR detected an issue that requires attention.";
@@ -609,26 +641,53 @@ function printCheck(
   write: (line: string) => void,
   theme: CliTheme,
 ): void {
+  const colorSummary = (summary: string): string => {
+    if (result.issues.length === 0) {
+      return theme.success(summary);
+    }
+
+    return result.issues.every((issue) => issue.fixable)
+      ? theme.warning(summary)
+      : theme.error(summary);
+  };
+
   if (result.issues.length === 0) {
     if (result.repairs.length > 0) {
       write(
-        `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}.`,
+        colorSummary(
+          `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}. No issues remain.`,
+        ),
       );
       write("");
       write(theme.success(theme.heading("Fixed")));
+      const groupedRepairs = new Map<string, string[]>();
+      const unscopedRepairs: string[] = [];
       for (const repair of result.repairs) {
-        if (repair.ref) {
-          write(`  ${theme.model(repair.ref)}`);
-          write(`    ${repair.message}`);
-        } else {
-          write(`  ${repair.message}`);
+        if (!repair.ref) {
+          unscopedRepairs.push(repair.message);
+          continue;
         }
+
+        const existing = groupedRepairs.get(repair.ref) ?? [];
+        existing.push(repair.message);
+        groupedRepairs.set(repair.ref, existing);
+      }
+      for (const [ref, messages] of groupedRepairs) {
+        write(`  ${theme.model(ref)}`);
+        for (const message of messages) {
+          write(`    ${message}`);
+        }
+      }
+      for (const message of unscopedRepairs) {
+        write(`  ${message}`);
       }
       return;
     }
 
     write(
-      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. ${theme.success("No issues found.")}`,
+      colorSummary(
+        `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. No issues found.`,
+      ),
     );
     return;
   }
@@ -636,17 +695,32 @@ function printCheck(
   const fixableCount = result.issues.filter((issue) => issue.fixable).length;
   if (result.repairs.length > 0) {
     write(
-      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}. ${result.issues.length} ${result.issues.length === 1 ? "issue remains" : "issues remain"}.`,
+      colorSummary(
+        `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}. ${result.issues.length} ${result.issues.length === 1 ? "issue remains" : "issues remain"}.`,
+      ),
     );
     write("");
     write(theme.success(theme.heading("Fixed")));
+    const groupedRepairs = new Map<string, string[]>();
+    const unscopedRepairs: string[] = [];
     for (const repair of result.repairs) {
-      if (repair.ref) {
-        write(`  ${theme.model(repair.ref)}`);
-        write(`    ${repair.message}`);
-      } else {
-        write(`  ${repair.message}`);
+      if (!repair.ref) {
+        unscopedRepairs.push(repair.message);
+        continue;
       }
+
+      const existing = groupedRepairs.get(repair.ref) ?? [];
+      existing.push(repair.message);
+      groupedRepairs.set(repair.ref, existing);
+    }
+    for (const [ref, messages] of groupedRepairs) {
+      write(`  ${theme.model(ref)}`);
+      for (const message of messages) {
+        write(`    ${message}`);
+      }
+    }
+    for (const message of unscopedRepairs) {
+      write(`  ${message}`);
     }
     write("");
   } else {
@@ -654,39 +728,29 @@ function printCheck(
     if (fixableCount > 0) {
       summary += ` ${fixableCount} can be fixed automatically.`;
     }
-    write(summary);
+    write(colorSummary(summary));
     write("");
   }
 
-  const groupedIssues = new Map<
-    string,
-    { fixable: boolean; messages: string[] }
-  >();
+  const groupedIssues = new Map<string, CheckIssue[]>();
   for (const issue of result.issues) {
     const ref = issue.ref ?? "UMR";
-    const existing = groupedIssues.get(ref);
-    if (existing) {
-      existing.fixable ||= issue.fixable;
-      existing.messages.push(formatCheckIssue(issue));
-      continue;
-    }
-
-    groupedIssues.set(ref, {
-      fixable: issue.fixable,
-      messages: [formatCheckIssue(issue)],
-    });
+    const existing = groupedIssues.get(ref) ?? [];
+    existing.push(issue);
+    groupedIssues.set(ref, existing);
   }
 
   let firstGroup = true;
-  for (const [ref, group] of groupedIssues) {
+  for (const [ref, issues] of groupedIssues) {
     if (!firstGroup) {
       write("");
     }
-    write(
-      `${theme.model(ref)}${group.fixable ? ` ${theme.fixable("(Fixable)")}` : ""}`,
-    );
-    for (const message of group.messages) {
-      write(`  ${message}`);
+    write(theme.model(ref));
+    for (const issue of issues) {
+      const message = formatCheckIssue(issue);
+      write(
+        `  ${message}${issue.fixable ? ` ${theme.fixable("(Fixable)")}` : ""}`,
+      );
     }
     firstGroup = false;
   }
@@ -867,6 +931,72 @@ class CliProgressReporter {
     }
 
     this.write(`${this.theme.dim("->")} ${event.message}`);
+  }
+}
+
+class CliTransferProgress implements TransferProgressSink {
+  #bar: ProgressBarHandle | null = null;
+
+  constructor(
+    private readonly enabled: boolean,
+    private readonly flush: () => void,
+  ) {}
+
+  start(task: { label: string; totalBytes: number }): void {
+    if (!this.enabled) {
+      return;
+    }
+
+    this.flush();
+    this.#bar?.stop();
+    const bar = new cliProgress.SingleBar(
+      {
+        clearOnComplete: true,
+        hideCursor: true,
+        format:
+          "Copying {label} [{bar}] {percentage}% | {value_formatted}/{total_formatted}",
+        stream: process.stderr,
+        stopOnComplete: true,
+      },
+      cliProgress.Presets.shades_classic,
+    );
+    this.#bar = bar;
+    bar.start(task.totalBytes, 0, {
+      label: task.label,
+      value_formatted: humanizeBytes(0),
+      total_formatted: humanizeBytes(task.totalBytes),
+    });
+  }
+
+  update(task: {
+    label: string;
+    completedBytes: number;
+    totalBytes: number;
+  }): void {
+    if (!this.enabled || !this.#bar) {
+      return;
+    }
+
+    this.#bar.update(task.completedBytes, {
+      label: task.label,
+      value_formatted: humanizeBytes(task.completedBytes),
+      total_formatted: humanizeBytes(task.totalBytes),
+    });
+  }
+
+  finish(task: { label: string; totalBytes: number }): void {
+    if (!this.enabled || !this.#bar) {
+      return;
+    }
+
+    this.#bar.update(task.totalBytes, {
+      label: task.label,
+      value_formatted: humanizeBytes(task.totalBytes),
+      total_formatted: humanizeBytes(task.totalBytes),
+    });
+    this.#bar.stop();
+    this.flush();
+    this.#bar = null;
   }
 }
 
@@ -1189,6 +1319,12 @@ export async function runCli(
     options?.verbose ?? hasVerboseFlag(argv),
   );
   const streamSink = createStreamSink(stderrRaw, stdoutRaw);
+  const transferProgress = new CliTransferProgress(
+    options?.stderr === undefined &&
+      options?.stderrRaw === undefined &&
+      Boolean(process.stderr.isTTY),
+    () => stderrRaw.flush(),
+  );
   const interactive =
     options?.interactive ??
     Boolean(process.stdin.isTTY && process.stdout.isTTY);
@@ -1296,9 +1432,7 @@ export async function runCli(
                 }),
               );
               stdout("");
-              stdout(
-                `${theme.label("Path:")} ${selected.trackedModel.entryPath}`,
-              );
+              stdout(theme.dim(`Path: ${selected.trackedModel.entryPath}`));
               return;
             }
           }
@@ -1306,7 +1440,7 @@ export async function runCli(
           const result = await manager.addSource(
             "hf",
             { repo, file, revision: resolvedRevision },
-            { reporter, streamSink },
+            { reporter, streamSink, transferProgress },
           );
           stdout(
             formatAddedModelMessage(theme, {
@@ -1315,7 +1449,7 @@ export async function runCli(
             }),
           );
           stdout("");
-          stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
+          stdout(theme.dim(`Path: ${result.model.entryPath}`));
           return;
         }
 
@@ -1329,7 +1463,7 @@ export async function runCli(
         const result = await getManager().addSource(
           "path",
           { path: sourceOrPath },
-          { reporter, streamSink },
+          { reporter, streamSink, transferProgress },
         );
         stdout(
           formatAddedModelMessage(theme, {
@@ -1338,7 +1472,7 @@ export async function runCli(
           }),
         );
         stdout("");
-        stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
+        stdout(theme.dim(`Path: ${result.model.entryPath}`));
       },
     );
 

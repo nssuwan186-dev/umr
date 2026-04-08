@@ -60,6 +60,15 @@ test("check --fix clears stale registrations, temp files, and orphaned model roo
 
   const result = await umr.check({ fix: true });
   expect(result.fixed).toBeTrue();
+  expect(result.issues).toHaveLength(0);
+  expect(result.repairs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        ref: added.model.name,
+        message: "Removed stale fake link from UMR.",
+      }),
+    ]),
+  );
   expect(umr.getModel(added.model.ref).registrations).toHaveLength(0);
   expect(await Bun.file(stalePath).exists()).toBeFalse();
   expect(await Bun.file(orphanRoot).exists()).toBeFalse();

@@ -30,15 +30,10 @@ export function deriveModelRef(
 
 export function deriveModelName(
   entryRelPath: string,
-  metadata: Record<string, JsonValue>,
+  _metadata: Record<string, JsonValue>,
 ): string {
-  const metadataName =
-    typeof metadata["general.name"] === "string"
-      ? metadata["general.name"]
-      : undefined;
   const basename = path.basename(entryRelPath, path.extname(entryRelPath));
-  const base = metadataName ?? basename;
-  const slug = slugify(base) || "model";
+  const slug = slugify(basename) || "model";
   const quantMatch = basename.match(/q\d(?:[_-][a-z0-9]+)+/i);
   if (quantMatch) {
     const quantSlug = slugify(quantMatch[0]);

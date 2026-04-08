@@ -150,3 +150,25 @@ test("lmstudio unlink tolerates manual removal of the managed path", async () =>
   await umr.unlink("lmstudio", added.model.ref);
   expect(umr.getModel(added.model.ref).registrations).toHaveLength(0);
 });
+
+test("lmstudio can be linked again after stale cleanup removes the UMR link", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-relink-"));
+  const modelsDir = path.join(dir, "models");
+  await mkdir(modelsDir, { recursive: true });
+  const sourcePath = path.join(dir, "tiny.gguf");
+  await createTestGGUF(sourcePath);
+
+  const umr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
+  const added = await umr.addSource("path", { path: sourcePath });
+  const first = await umr.link("lmstudio", added.model.ref);
+  await rm(String(first.state.targetPath), {
+    force: true,
+  });
+
+  const checked = await umr.check({ fix: true });
+  expect(checked.issues).toHaveLength(0);
+  expect(umr.getModel(added.model.ref).registrations).toHaveLength(0);
+
+  const second = await umr.link("lmstudio", added.model.ref);
+  expect(await Bun.file(String(second.state.targetPath)).exists()).toBeTrue();
+});

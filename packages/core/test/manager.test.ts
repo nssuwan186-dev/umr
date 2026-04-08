@@ -46,6 +46,44 @@ test("add path copies into managed model root and survives source move", async (
   expect(umr.getModel(added.model.name).ref).toBe(added.model.ref);
 });
 
+test("add path emits transfer progress while copying into UMR storage", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-copy-progress-"));
+  const sourceDir = path.join(dir, "source");
+  await mkdir(sourceDir, { recursive: true });
+  const sourcePath = path.join(sourceDir, "tiny.gguf");
+  await createTestGGUF(sourcePath);
+
+  const events: string[] = [];
+  const umr = createVMR(path.join(dir, "home"));
+  await umr.addSource(
+    "path",
+    { path: sourcePath },
+    {
+      transferProgress: {
+        start(task) {
+          events.push(`start:${task.label}:${task.totalBytes}`);
+        },
+        update(task) {
+          events.push(`update:${task.label}:${task.completedBytes}`);
+        },
+        finish(task) {
+          events.push(`finish:${task.label}:${task.totalBytes}`);
+        },
+      },
+    },
+  );
+
+  expect(events.some((event) => event.startsWith("start:tiny.gguf:"))).toBe(
+    true,
+  );
+  expect(events.some((event) => event.startsWith("update:tiny.gguf:"))).toBe(
+    true,
+  );
+  expect(events.some((event) => event.startsWith("finish:tiny.gguf:"))).toBe(
+    true,
+  );
+});
+
 test("generic adapters plug into add/link/remove flow for multi-member models", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-generic-"));
   const entryPath = path.join(dir, "fake.gguf");
@@ -116,10 +154,24 @@ test("model names are made unique when the base name collides", async () => {
   const first = await umr.addSource("path", { path: firstSourcePath });
   const second = await umr.addSource("path", { path: secondSourcePath });
 
-  expect(first.model.name).toBe("active");
-  expect(second.model.name).toBe("active-2");
-  expect(umr.getModel("active").entryPath).toBe(first.model.entryPath);
-  expect(umr.getModel("active-2").entryPath).toBe(second.model.entryPath);
+  expect(first.model.name).toBe("first-q4");
+  expect(second.model.name).toBe("second-q8");
+  expect(umr.getModel("first-q4").entryPath).toBe(first.model.entryPath);
+  expect(umr.getModel("second-q8").entryPath).toBe(second.model.entryPath);
+});
+
+test("local path imports derive the model name from the selected filename", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-local-name-"));
+  const sourcePath = path.join(
+    dir,
+    "zephyr-smol_llama-100m-sft-full.q2_k.gguf",
+  );
+  await createTestGGUF(sourcePath, { "general.name": "Active" });
+
+  const umr = createVMR(path.join(dir, "home"));
+  const added = await umr.addSource("path", { path: sourcePath });
+
+  expect(added.model.name).toBe("zephyr-smol-llama-100m-sft-full-q2-k");
 });
 
 test("hf-style imports derive the model name from the selected filename", async () => {

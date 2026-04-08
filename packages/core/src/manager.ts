@@ -246,6 +246,7 @@ export class UnifiedModelRegistry {
         resolved.members,
         contentDigest,
         resolved.storeStrategy,
+        context,
       );
       await emitInfo(context?.reporter, "Recording model in the registry");
       const model = this.registry.createModel({
@@ -481,23 +482,26 @@ export class UnifiedModelRegistry {
           reporter: options?.reporter,
         });
         if (!health.ok) {
-          issues.push({
-            severity: "warning",
-            ref: model.name,
-            code: `${registration.client}:${health.issues.join(",")}`,
-            fixable: true,
-          });
-
           if (options?.fix) {
             this.registry.deleteRegistrationById(registration.id);
             repairs.push({
               ref: model.name,
-              message: `Removed stale ${clientLabel} link.`,
+              message: `Removed stale ${clientLabel} link from UMR.`,
             });
             await emitWarning(
               options?.reporter,
               `Removed stale ${clientLabel} link for ${model.name}`,
             );
+            continue;
+          }
+
+          for (const issue of health.issues) {
+            issues.push({
+              severity: "warning",
+              ref: model.name,
+              code: `${registration.client}:${issue}`,
+              fixable: true,
+            });
           }
         }
       }
