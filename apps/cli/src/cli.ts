@@ -723,6 +723,12 @@ function printList(
       `${theme.model(row.name.padEnd(nameWidth))}  ${humanizeBytes(row.totalSizeBytes).padEnd(sizeWidth)}  ${registrations === "-" ? theme.dim(registrations.padEnd(clientWidth)) : registrations.padEnd(clientWidth)}  ${status}`,
     );
   }
+
+  const totalBytes = rows.reduce((sum, row) => sum + row.totalSizeBytes, 0);
+  write("");
+  write(
+    `Found ${rows.length} tracked ${rows.length === 1 ? "model" : "models"} for a total of ${humanizeBytes(totalBytes)} on disk.`,
+  );
 }
 
 function createDefaultPromptClient(): PromptClient {

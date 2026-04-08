@@ -344,6 +344,8 @@ test("list prints a modern table with humanized sizes", async () => {
   expect(lines).toEqual([
     "NAME        SIZE   TARGETS    STATUS",
     "tiny-model  123 B  LM Studio  ok",
+    "",
+    "Found 1 tracked model for a total of 123 B on disk.",
   ]);
 });
 
