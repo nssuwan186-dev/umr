@@ -4,6 +4,7 @@ import {
   isCancel,
 } from "@clack/prompts";
 import {
+  type CheckIssue,
   type CheckResult,
   ManagerError,
   type ModelDetails,
@@ -45,48 +46,229 @@ interface BufferedRawWriter {
   flush(): void;
 }
 
-function formatSources(model: ModelDetails): string {
-  return model.sources
-    .map(
-      (source) =>
-        `${source.kind}:${Object.entries(source.payload)
-          .map(([key, value]) => `${key}=${String(value)}`)
-          .join(",")}`,
-    )
-    .join("\n");
+const ROOT_HELP = `Virtual Model Registry
+
+Usage:
+  vmr <command> [...flags]
+
+Commands:
+  add <path>                  Add a local model
+  add hf <repo>               Add a model from Hugging Face
+  list                        List tracked models
+  show <model>                Show model details
+  register <client> <model>   Register a model with a client
+  unregister <client> <model> Remove a client registration
+  remove <model>              Remove a model from VMR
+  check                       Check VMR state and registrations
+
+Flags:
+  -v, --verbose               Show detailed progress
+  -h, --help                  Print help
+
+Use \`vmr <command> --help\` for more information about a command.
+`;
+
+const ADD_HELP = `Usage:
+  vmr add <path>
+  vmr add hf <repo> [--file <name>] [--revision <rev>] [--yes]
+
+Add a model from a local path or Hugging Face.
+
+Options:
+  --file <name>               Choose a GGUF file from the repo
+  --revision <rev>            Resolve a specific branch, tag, or commit
+  -y, --yes                   Skip download confirmation
+  -h, --help                  Print help
+`;
+
+function humanizeBytes(size: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  if (unitIndex === 0) {
+    return `${value} ${units[unitIndex]}`;
+  }
+
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  const formatted = value.toFixed(precision);
+  return `${formatted.replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")} ${units[unitIndex]}`;
 }
 
-function formatRegistrations(model: ModelDetails): string {
+function formatSource(model: ModelDetails): string {
+  const hfSource = model.sources.find((source) => {
+    const repo = source.payload.repo;
+    return source.kind === "hf" && typeof repo === "string" && repo.trim();
+  });
+  if (hfSource) {
+    return String(hfSource.payload.repo);
+  }
+
+  if (model.sources.some((source) => source.kind === "path")) {
+    return "local path";
+  }
+
+  return model.sources[0]?.kind ?? "unknown";
+}
+
+function formatClients(model: ModelDetails): string {
   if (model.registrations.length === 0) {
     return "none";
   }
 
   return model.registrations
-    .map(
-      (registration) => `${registration.client} -> ${registration.clientRef}`,
-    )
-    .join("\n");
+    .map((registration) => registration.client)
+    .join(",");
+}
+
+function formatClientName(client: string): string {
+  switch (client) {
+    case "lmstudio":
+      return "LM Studio";
+    case "ollama":
+      return "Ollama";
+    case "jan":
+      return "Jan";
+    default:
+      return client;
+  }
 }
 
 function formatGGUFFiles(files: HFSelectableFile[]): string {
   return files
-    .map((file) => `  - ${file.file} (${formatHFSelectionState(file.state)})`)
+    .map(
+      (file) =>
+        `  ${file.file.padEnd(42)} ${formatHFSelectionState(file.state)}`,
+    )
     .join("\n");
+}
+
+function formatCheckIssue(issue: CheckIssue): string {
+  switch (issue.code) {
+    case "missing-model-root":
+    case "missing-entry-path":
+      return "Missing model file. Re-add the model or remove it from VMR.";
+  }
+
+  if (issue.code.startsWith("missing-member:")) {
+    return "Missing model file. Re-add the model or remove it from VMR.";
+  }
+
+  if (issue.code.startsWith("member-size-mismatch:")) {
+    return "Model files no longer match VMR metadata. Re-add the model.";
+  }
+
+  if (issue.code.startsWith("invalid-gguf:")) {
+    return "Model file is not a valid GGUF. Re-add the model.";
+  }
+
+  if (issue.code === "lmstudio:missing-target-path") {
+    return "LM Studio registration is stale.";
+  }
+
+  if (issue.code.startsWith("lmstudio:")) {
+    return "LM Studio registration needs attention.";
+  }
+
+  if (issue.code.startsWith("ollama:")) {
+    return "Ollama registration needs attention.";
+  }
+
+  if (issue.code.startsWith("jan:")) {
+    return "Jan registration needs attention.";
+  }
+
+  return "VMR detected an issue that requires attention.";
 }
 
 function printCheck(result: CheckResult, write: (line: string) => void): void {
   if (result.issues.length === 0) {
-    write(result.fixed ? "check: clean (repairs applied)" : "check: clean");
+    if (result.repairs.length > 0) {
+      write(
+        `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}.`,
+      );
+      write("");
+      write("Fixed");
+      for (const repair of result.repairs) {
+        if (repair.ref) {
+          write(`  ${repair.ref}`);
+          write(`    ${repair.message}`);
+        } else {
+          write(`  ${repair.message}`);
+        }
+      }
+      return;
+    }
+
+    write(
+      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. No issues found.`,
+    );
     return;
   }
 
-  write(
-    result.fixed
-      ? "check: issues found (repairs applied where safe)"
-      : "check: issues found",
-  );
+  const fixableCount = result.issues.filter((issue) => issue.fixable).length;
+  if (result.repairs.length > 0) {
+    write(
+      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}. ${result.issues.length} ${result.issues.length === 1 ? "issue remains" : "issues remain"}.`,
+    );
+    write("");
+    write("Fixed");
+    for (const repair of result.repairs) {
+      if (repair.ref) {
+        write(`  ${repair.ref}`);
+        write(`    ${repair.message}`);
+      } else {
+        write(`  ${repair.message}`);
+      }
+    }
+    write("");
+  } else {
+    let summary = `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Found ${result.issues.length} ${result.issues.length === 1 ? "issue" : "issues"}.`;
+    if (fixableCount > 0) {
+      summary += ` ${fixableCount} can be fixed automatically.`;
+    }
+    write(summary);
+    write("");
+  }
+
+  const groupedIssues = new Map<
+    string,
+    { fixable: boolean; messages: string[] }
+  >();
   for (const issue of result.issues) {
-    write(`- [${issue.severity}] ${issue.ref ?? "global"} ${issue.message}`);
+    const ref = issue.ref ?? "VMR";
+    const existing = groupedIssues.get(ref);
+    if (existing) {
+      existing.fixable ||= issue.fixable;
+      existing.messages.push(formatCheckIssue(issue));
+      continue;
+    }
+
+    groupedIssues.set(ref, {
+      fixable: issue.fixable,
+      messages: [formatCheckIssue(issue)],
+    });
+  }
+
+  let firstGroup = true;
+  for (const [ref, group] of groupedIssues) {
+    if (!firstGroup) {
+      write("");
+    }
+    write(`${ref}${group.fixable ? " (Fixable)" : ""}`);
+    for (const message of group.messages) {
+      write(`  ${message}`);
+    }
+    firstGroup = false;
+  }
+
+  if (fixableCount > 0 && result.repairs.length === 0) {
+    write("");
+    write("Run `vmr check --fix` to apply safe repairs.");
   }
 }
 
@@ -95,16 +277,28 @@ function printList(
   write: (line: string) => void,
 ): void {
   if (rows.length === 0) {
-    write("No models tracked.");
+    write("No models found.");
     return;
   }
 
-  write("NAME                             SIZE      REGS          HEALTH");
+  const nameWidth = Math.max(
+    "NAME".length,
+    ...rows.map((row) => row.name.length),
+  );
+  const clientWidth = Math.max(
+    "CLIENTS".length,
+    ...rows.map((row) =>
+      row.registrations.length > 0 ? row.registrations.join(",").length : 1,
+    ),
+  );
+  write(
+    `${"NAME".padEnd(nameWidth)}  ${"SIZE".padEnd(8)}  ${"CLIENTS".padEnd(clientWidth)}  STATUS`,
+  );
   for (const row of rows) {
     const registrations =
       row.registrations.length > 0 ? row.registrations.join(",") : "-";
     write(
-      `${row.name.padEnd(32)} ${String(row.totalSizeBytes).padEnd(9)} ${registrations.padEnd(13)} ${row.health}`,
+      `${row.name.padEnd(nameWidth)}  ${humanizeBytes(row.totalSizeBytes).padEnd(8)}  ${registrations.padEnd(clientWidth)}  ${row.health}`,
     );
   }
 }
@@ -376,10 +570,27 @@ function hasVerboseFlag(argv: string[]): boolean {
   return argv.includes("--verbose") || argv.includes("-v");
 }
 
+function shouldPrintRootHelp(argv: string[]): boolean {
+  return (
+    argv.length === 0 ||
+    (argv.length === 1 &&
+      (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help"))
+  );
+}
+
+function shouldPrintAddHelp(argv: string[]): boolean {
+  return (
+    (argv[0] === "add" &&
+      argv.some((arg) => arg === "--help" || arg === "-h")) ||
+    (argv[0] === "help" && argv[1] === "add")
+  );
+}
+
 export async function runCli(
   argv: string[],
   options?: {
     manager?: VirtualModelRegistry;
+    createManager?: () => VirtualModelRegistry;
     stdout?: (line: string) => void;
     stderr?: (line: string) => void;
     stdoutRaw?: (chunk: string) => void;
@@ -389,7 +600,6 @@ export async function runCli(
     verbose?: boolean;
   },
 ): Promise<number> {
-  const manager = options?.manager ?? createDefaultVMR();
   const stdout = options?.stdout ?? ((line: string) => console.log(line));
   const stderr = options?.stderr ?? ((line: string) => console.error(line));
   const stdoutRaw = createBufferedRawWriter(
@@ -409,12 +619,29 @@ export async function runCli(
     options?.interactive ??
     Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const prompts = options?.prompts ?? createDefaultPromptClient();
+  let manager = options?.manager;
+  const getManager = (): VirtualModelRegistry => {
+    manager ??= options?.createManager?.() ?? createDefaultVMR();
+    return manager;
+  };
+
+  if (shouldPrintRootHelp(argv)) {
+    stdoutRaw.write(ROOT_HELP);
+    stdoutRaw.flush();
+    return 0;
+  }
+
+  if (shouldPrintAddHelp(argv)) {
+    stdoutRaw.write(ADD_HELP);
+    stdoutRaw.flush();
+    return 0;
+  }
 
   const program = new Command();
   program
     .name("vmr")
     .description("Virtual Model Registry")
-    .option("-v, --verbose", "Show internal progress steps")
+    .option("-v, --verbose", "Show detailed progress")
     .showHelpAfterError()
     .showSuggestionAfterError()
     .configureOutput({
@@ -456,6 +683,7 @@ export async function runCli(
         },
       ) => {
         if (sourceOrPath === "hf") {
+          const manager = getManager();
           const repo = value;
           if (!repo) {
             throw new ManagerError("Missing Hugging Face repo", {
@@ -485,8 +713,9 @@ export async function runCli(
 
           if (!shouldInstall) {
             if (selected.trackedModel) {
-              stdout(`existing: ${selected.trackedModel.name}`);
-              stdout(selected.trackedModel.entryPath);
+              stdout(`Already added ${selected.trackedModel.name}`);
+              stdout("");
+              stdout(`Path: ${selected.trackedModel.entryPath}`);
               return;
             }
           }
@@ -496,8 +725,11 @@ export async function runCli(
             { repo, file, revision: resolvedRevision },
             { reporter, streamSink },
           );
-          stdout(`${result.status}: ${result.model.name}`);
-          stdout(result.model.entryPath);
+          stdout(
+            `${result.status === "existing" ? "Already added" : "Added"} ${result.model.name}`,
+          );
+          stdout("");
+          stdout(`Path: ${result.model.entryPath}`);
           return;
         }
 
@@ -508,13 +740,16 @@ export async function runCli(
           });
         }
 
-        const result = await manager.addSource(
+        const result = await getManager().addSource(
           "path",
           { path: sourceOrPath },
           { reporter, streamSink },
         );
-        stdout(`${result.status}: ${result.model.name}`);
-        stdout(result.model.entryPath);
+        stdout(
+          `${result.status === "existing" ? "Already added" : "Added"} ${result.model.name}`,
+        );
+        stdout("");
+        stdout(`Path: ${result.model.entryPath}`);
       },
     );
 
@@ -522,7 +757,7 @@ export async function runCli(
     .command("list")
     .description("List tracked models")
     .action(async () => {
-      printList(await manager.listModels(), stdout);
+      printList(await getManager().listModels(), stdout);
     });
 
   program
@@ -531,19 +766,18 @@ export async function runCli(
     .argument("<model>", "Model selector")
     .option("--path", "Print only the model entry path")
     .action((selector: string, commandOptions: { path?: boolean }) => {
-      const model = manager.getModel(selector);
+      const model = getManager().getModel(selector);
       if (commandOptions.path) {
         stdout(model.entryPath);
         return;
       }
 
-      stdout(`name: ${model.name}`);
-      stdout(`filename: ${model.entryFilename}`);
-      stdout(`path: ${model.entryPath}`);
-      stdout(`content-digest: ${model.contentDigest}`);
-      stdout(`size: ${model.totalSizeBytes}`);
-      stdout(`sources:\n${formatSources(model)}`);
-      stdout(`registrations:\n${formatRegistrations(model)}`);
+      stdout(model.name);
+      stdout(`  File      ${model.entryFilename}`);
+      stdout(`  Path      ${model.entryPath}`);
+      stdout(`  Size      ${humanizeBytes(model.totalSizeBytes)}`);
+      stdout(`  Source    ${formatSource(model)}`);
+      stdout(`  Clients   ${formatClients(model)}`);
     });
 
   program
@@ -552,13 +786,13 @@ export async function runCli(
     .argument("<client>", "Client name")
     .argument("<model>", "Model selector")
     .action(async (client: string, selector: string) => {
-      const registration = await manager.register(client, selector, {
+      const registry = getManager();
+      const model = registry.getModel(selector);
+      await registry.register(client, selector, {
         reporter,
         streamSink,
       });
-      stdout(
-        `registered ${selector} with ${client}: ${registration.clientRef}`,
-      );
+      stdout(`Registered ${model.name} with ${formatClientName(client)}`);
     });
 
   program
@@ -567,8 +801,12 @@ export async function runCli(
     .argument("<client>", "Client name")
     .argument("<model>", "Model selector")
     .action(async (client: string, selector: string) => {
-      await manager.unregister(client, selector, { reporter, streamSink });
-      stdout(`unregistered ${selector} from ${client}`);
+      const registry = getManager();
+      const model = registry.getModel(selector);
+      await registry.unregister(client, selector, { reporter, streamSink });
+      stdout(
+        `Removed ${formatClientName(client)} registration for ${model.name}`,
+      );
     });
 
   program
@@ -576,8 +814,10 @@ export async function runCli(
     .description("Remove a model from managed storage")
     .argument("<model>", "Model selector")
     .action(async (selector: string) => {
-      await manager.remove(selector, { reporter, streamSink });
-      stdout(`removed ${selector}`);
+      const registry = getManager();
+      const model = registry.getModel(selector);
+      await registry.remove(selector, { reporter, streamSink });
+      stdout(`Removed ${model.name}`);
     });
 
   program
@@ -585,7 +825,10 @@ export async function runCli(
     .description("Check managed state and optionally repair stale records")
     .option("--fix", "Apply safe repairs")
     .action(async (commandOptions: { fix?: boolean }) => {
-      const result = await manager.check({ fix: commandOptions.fix, reporter });
+      const result = await getManager().check({
+        fix: commandOptions.fix,
+        reporter,
+      });
       printCheck(result, stdout);
       if (result.issues.length > 0) {
         throw new ManagerError("check completed with issues", {

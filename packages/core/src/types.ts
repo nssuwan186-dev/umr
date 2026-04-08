@@ -133,13 +133,21 @@ export interface ModelDetails extends ModelRecord {
 export interface CheckIssue {
   severity: "error" | "warning";
   ref?: string;
+  code: string;
+  fixable: boolean;
+}
+
+export interface CheckRepair {
+  ref?: string;
   message: string;
 }
 
 export interface CheckResult {
   ok: boolean;
   fixed: boolean;
+  checkedModels: number;
   issues: CheckIssue[];
+  repairs: CheckRepair[];
 }
 
 export function resolveModelEntryPath(

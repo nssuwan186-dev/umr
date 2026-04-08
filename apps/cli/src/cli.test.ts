@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 
+import type { CheckResult } from "@vmr/core";
+
 import { runCli } from "./cli";
 
 function createModel(overrides: Record<string, unknown> = {}) {
@@ -33,9 +35,17 @@ function createFakeManager(options?: {
   trackedHFFile?: string;
   inspectGGUFFiles?: string[];
   cachedHFFiles?: string[];
+  listRows?: Array<{
+    name: string;
+    totalSizeBytes: number;
+    registrations: string[];
+    health: "ok" | "missing";
+  }>;
+  model?: ReturnType<typeof createModel>;
+  checkResult?: CheckResult;
 }) {
   const calls: Array<{ kind: string; input: unknown }> = [];
-  const model = createModel();
+  const model = options?.model ?? createModel();
   const manager = {
     calls,
     listExplicitSourceKinds: () => ["hf"],
@@ -72,13 +82,18 @@ function createFakeManager(options?: {
       kind: string,
       input: unknown,
       context?: {
-        reporter?: { emit: (event: { message: string }) => void };
+        reporter?: {
+          emit: (event: { message: string; level?: string }) => void;
+        };
         streamSink?: { stderr?: (chunk: string) => void };
       },
     ) => {
       calls.push({ kind, input });
-      context?.reporter?.emit({ message: "Resolving source" });
-      context?.reporter?.emit({ message: "Hashing resolved model members" });
+      context?.reporter?.emit({ message: "Resolving source", level: "info" });
+      context?.reporter?.emit({
+        message: "Hashing resolved model members",
+        level: "info",
+      });
       if (kind === "hf") {
         context?.streamSink?.stderr?.("hf-progress");
       }
@@ -87,13 +102,14 @@ function createFakeManager(options?: {
         model,
       };
     },
-    listModels: async () => [
-      {
-        ...model,
-        registrations: ["lmstudio"],
-        health: "ok" as const,
-      },
-    ],
+    listModels: async () =>
+      options?.listRows ?? [
+        {
+          ...model,
+          registrations: ["lmstudio"],
+          health: "ok" as const,
+        },
+      ],
     getModel: (_selector: string) => ({
       ...model,
       sources: [
@@ -122,13 +138,91 @@ function createFakeManager(options?: {
     }),
     unregister: async () => {},
     remove: async () => {},
-    check: async () => ({ ok: true, fixed: false, issues: [] }),
+    check: async () =>
+      options?.checkResult ?? {
+        ok: true,
+        fixed: false,
+        checkedModels: 1,
+        issues: [],
+        repairs: [],
+      },
   };
 
   return manager;
 }
 
-test("list prints a simple table", async () => {
+test("root help uses custom text and does not initialize the manager", async () => {
+  const stdoutRaw: string[] = [];
+  let createManagerCalls = 0;
+
+  const code = await runCli(["--help"], {
+    createManager: () => {
+      createManagerCalls += 1;
+      throw new Error("manager should not be created");
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(createManagerCalls).toBe(0);
+  expect(stdoutRaw.join("")).toBe(`Virtual Model Registry
+
+Usage:
+  vmr <command> [...flags]
+
+Commands:
+  add <path>                  Add a local model
+  add hf <repo>               Add a model from Hugging Face
+  list                        List tracked models
+  show <model>                Show model details
+  register <client> <model>   Register a model with a client
+  unregister <client> <model> Remove a client registration
+  remove <model>              Remove a model from VMR
+  check                       Check VMR state and registrations
+
+Flags:
+  -v, --verbose               Show detailed progress
+  -h, --help                  Print help
+
+Use \`vmr <command> --help\` for more information about a command.
+`);
+});
+
+test("add help uses custom text and does not initialize the manager", async () => {
+  const stdoutRaw: string[] = [];
+  let createManagerCalls = 0;
+
+  const code = await runCli(["add", "--help"], {
+    createManager: () => {
+      createManagerCalls += 1;
+      throw new Error("manager should not be created");
+    },
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(createManagerCalls).toBe(0);
+  expect(stdoutRaw.join("")).toBe(`Usage:
+  vmr add <path>
+  vmr add hf <repo> [--file <name>] [--revision <rev>] [--yes]
+
+Add a model from a local path or Hugging Face.
+
+Options:
+  --file <name>               Choose a GGUF file from the repo
+  --revision <rev>            Resolve a specific branch, tag, or commit
+  -y, --yes                   Skip download confirmation
+  -h, --help                  Print help
+`);
+});
+
+test("list prints a modern table with humanized sizes", async () => {
   const lines: string[] = [];
   const code = await runCli(["list"], {
     manager: createFakeManager() as never,
@@ -138,8 +232,27 @@ test("list prints a simple table", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME                             SIZE      REGS          HEALTH",
-    "tiny-model                       123       lmstudio      ok",
+    "NAME        SIZE      CLIENTS   STATUS",
+    "tiny-model  123 B     lmstudio  ok",
+  ]);
+});
+
+test("show prints a compact detail block", async () => {
+  const lines: string[] = [];
+  const code = await runCli(["show", "tiny-model"], {
+    manager: createFakeManager() as never,
+    stdout: (line) => lines.push(line),
+    stderr: (line) => lines.push(`ERR:${line}`),
+  });
+
+  expect(code).toBe(0);
+  expect(lines).toEqual([
+    "tiny-model",
+    "  File      tiny.gguf",
+    "  Path      /tmp/model-root/tiny.gguf",
+    "  Size      123 B",
+    "  Source    local path",
+    "  Clients   lmstudio",
   ]);
 });
 
@@ -173,8 +286,9 @@ test("add local path stays quiet by default while keeping final output on stdout
   ]);
   expect(stderrLines).toEqual([]);
   expect(stdoutLines).toEqual([
-    "tracked: tiny-model",
-    "/tmp/model-root/tiny.gguf",
+    "Added tiny-model",
+    "",
+    "Path: /tmp/model-root/tiny.gguf",
   ]);
 });
 
@@ -199,6 +313,7 @@ test("add local path emits reporter lines with --verbose", async () => {
 test("add hf with --file and --yes dispatches to the explicit hf adapter", async () => {
   const manager = createFakeManager({ inspectGGUFFiles: ["tiny-q2.gguf"] });
   const stderrRaw: string[] = [];
+  const stdoutLines: string[] = [];
   const code = await runCli(
     [
       "add",
@@ -210,7 +325,7 @@ test("add hf with --file and --yes dispatches to the explicit hf adapter", async
     ],
     {
       manager: manager as never,
-      stdout: () => {},
+      stdout: (line) => stdoutLines.push(line),
       stderr: () => {},
       stderrRaw: (chunk) => stderrRaw.push(chunk),
     },
@@ -228,6 +343,11 @@ test("add hf with --file and --yes dispatches to the explicit hf adapter", async
     },
   ]);
   expect(stderrRaw).toContain("hf-progress");
+  expect(stdoutLines).toEqual([
+    "Added tiny-model",
+    "",
+    "Path: /tmp/model-root/tiny.gguf",
+  ]);
 });
 
 test("add hf prompts to choose a GGUF file in interactive mode", async () => {
@@ -297,12 +417,11 @@ test("add hf without --file fails in non-interactive mode and lists files", asyn
   });
 
   expect(code).toBe(2);
-  expect(stderrLines.at(-1)).toContain(
-    "Multiple GGUF files found in repo/name",
-  );
-  expect(stderrLines.at(-1)).toContain("tiny-q4.gguf");
-  expect(stderrLines.at(-1)).toContain("tiny-q8.gguf");
-  expect(stderrLines.at(-1)).toContain("Download Required");
+  expect(
+    stderrLines.at(-1),
+  ).toBe(`Multiple GGUF files found in repo/name; rerun with --file explicitly:
+  tiny-q4.gguf                               Download Required
+  tiny-q8.gguf                               Download Required`);
 });
 
 test("add hf without --yes fails in non-interactive mode", async () => {
@@ -353,8 +472,9 @@ test("existing tracked hf source skips confirmation and add", async () => {
   expect(confirmCalls).toBe(0);
   expect(manager.calls).toEqual([]);
   expect(stdoutLines).toEqual([
-    "existing: existing-model",
-    "/tmp/existing-model/tiny.gguf",
+    "Already added existing-model",
+    "",
+    "Path: /tmp/existing-model/tiny.gguf",
   ]);
 });
 
@@ -460,6 +580,165 @@ test("add ./hf is treated as a local path, not the hf source keyword", async () 
   expect(manager.calls).toEqual([{ kind: "path", input: { path: "./hf" } }]);
 });
 
+test("register and unregister use clean client-facing wording", async () => {
+  const stdoutLines: string[] = [];
+  const code = await runCli(["register", "lmstudio", "tiny-model"], {
+    manager: createFakeManager() as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stdoutLines).toEqual(["Registered tiny-model with LM Studio"]);
+
+  stdoutLines.length = 0;
+  const unregisterCode = await runCli(
+    ["unregister", "lmstudio", "tiny-model"],
+    {
+      manager: createFakeManager() as never,
+      stdout: (line) => stdoutLines.push(line),
+      stderr: () => {},
+      stdoutRaw: () => {},
+      stderrRaw: () => {},
+    },
+  );
+
+  expect(unregisterCode).toBe(0);
+  expect(stdoutLines).toEqual([
+    "Removed LM Studio registration for tiny-model",
+  ]);
+});
+
+test("remove uses clean success wording", async () => {
+  const stdoutLines: string[] = [];
+  const code = await runCli(["remove", "tiny-model"], {
+    manager: createFakeManager() as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stdoutLines).toEqual(["Removed tiny-model"]);
+});
+
+test("check clean state prints a terse summary", async () => {
+  const stdoutLines: string[] = [];
+  const code = await runCli(["check"], {
+    manager: createFakeManager({
+      checkResult: {
+        ok: true,
+        fixed: false,
+        checkedModels: 3,
+        issues: [],
+        repairs: [],
+      },
+    }) as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: () => {},
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stdoutLines).toEqual(["Checked 3 models. No issues found."]);
+});
+
+test("check groups issues and suggests safe repairs when available", async () => {
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const code = await runCli(["check"], {
+    manager: createFakeManager({
+      checkResult: {
+        ok: false,
+        fixed: false,
+        checkedModels: 3,
+        issues: [
+          {
+            severity: "error",
+            ref: "tiny-test-model",
+            code: "missing-entry-path",
+            fixable: false,
+          },
+          {
+            severity: "warning",
+            ref: "zephyr-smol-llama-100m-sft-full-q2-k",
+            code: "lmstudio:missing-target-path",
+            fixable: true,
+          },
+        ],
+        repairs: [],
+      },
+    }) as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: (line) => stderrLines.push(line),
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(3);
+  expect(stdoutLines).toEqual([
+    "Checked 3 models. Found 2 issues. 1 can be fixed automatically.",
+    "",
+    "tiny-test-model",
+    "  Missing model file. Re-add the model or remove it from VMR.",
+    "",
+    "zephyr-smol-llama-100m-sft-full-q2-k (Fixable)",
+    "  LM Studio registration is stale.",
+    "",
+    "Run `vmr check --fix` to apply safe repairs.",
+  ]);
+  expect(stderrLines).toEqual(["check completed with issues"]);
+});
+
+test("check --fix shows fixed repairs and remaining issues", async () => {
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const code = await runCli(["check", "--fix"], {
+    manager: createFakeManager({
+      checkResult: {
+        ok: false,
+        fixed: true,
+        checkedModels: 3,
+        issues: [
+          {
+            severity: "error",
+            ref: "tiny-test-model",
+            code: "missing-entry-path",
+            fixable: false,
+          },
+        ],
+        repairs: [
+          {
+            ref: "zephyr-smol-llama-100m-sft-full-q2-k",
+            message: "Cleared stale LM Studio registration.",
+          },
+        ],
+      },
+    }) as never,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: (line) => stderrLines.push(line),
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(3);
+  expect(stdoutLines).toEqual([
+    "Checked 3 models. Fixed 1 issue. 1 issue remains.",
+    "",
+    "Fixed",
+    "  zephyr-smol-llama-100m-sft-full-q2-k",
+    "    Cleared stale LM Studio registration.",
+    "",
+    "tiny-test-model",
+    "  Missing model file. Re-add the model or remove it from VMR.",
+  ]);
+  expect(stderrLines).toEqual(["check completed with issues"]);
+});
+
 test("missing command args surface a clean commander error", async () => {
   const stderrRaw: string[] = [];
   const code = await runCli(["show"], {
@@ -472,18 +751,4 @@ test("missing command args surface a clean commander error", async () => {
 
   expect(code).toBe(1);
   expect(stderrRaw.join("")).toContain("missing required argument 'model'");
-});
-
-test("no args prints help", async () => {
-  const stdoutRaw: string[] = [];
-  const code = await runCli([], {
-    manager: createFakeManager() as never,
-    stdout: () => {},
-    stderr: () => {},
-    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
-    stderrRaw: () => {},
-  });
-
-  expect(code).toBe(0);
-  expect(stdoutRaw.join("")).toContain("Usage: vmr");
 });

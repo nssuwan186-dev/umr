@@ -28,6 +28,7 @@ import {
 import { ModelStore } from "./store";
 import type {
   CheckIssue,
+  CheckRepair,
   CheckResult,
   JsonValue,
   ModelDetails,
@@ -361,6 +362,7 @@ export class VirtualModelRegistry {
     reporter?: ProgressReporter;
   }): Promise<CheckResult> {
     const issues: CheckIssue[] = [];
+    const repairs: CheckRepair[] = [];
     const models = this.registry.listModels();
     await emitInfo(
       options?.reporter,
@@ -374,7 +376,8 @@ export class VirtualModelRegistry {
         issues.push({
           severity: "error",
           ref: model.name,
-          message: "missing-model-root",
+          code: "missing-model-root",
+          fixable: false,
         });
         continue;
       }
@@ -383,7 +386,8 @@ export class VirtualModelRegistry {
         issues.push({
           severity: "error",
           ref: model.name,
-          message: "missing-entry-path",
+          code: "missing-entry-path",
+          fixable: false,
         });
       }
 
@@ -396,7 +400,8 @@ export class VirtualModelRegistry {
           issues.push({
             severity: "error",
             ref: model.name,
-            message: `missing-member:${member.relPath}`,
+            code: `missing-member:${member.relPath}`,
+            fixable: false,
           });
           continue;
         }
@@ -406,7 +411,8 @@ export class VirtualModelRegistry {
           issues.push({
             severity: "error",
             ref: model.name,
-            message: `member-size-mismatch:${member.relPath}`,
+            code: `member-size-mismatch:${member.relPath}`,
+            fixable: false,
           });
         }
       }
@@ -418,7 +424,8 @@ export class VirtualModelRegistry {
           issues.push({
             severity: "error",
             ref: model.name,
-            message: `invalid-gguf:${(error as Error).message}`,
+            code: `invalid-gguf:${(error as Error).message}`,
+            fixable: false,
           });
         }
       }
@@ -434,11 +441,16 @@ export class VirtualModelRegistry {
           issues.push({
             severity: "warning",
             ref: model.name,
-            message: `${registration.client}:${health.issues.join(",")}`,
+            code: `${registration.client}:${health.issues.join(",")}`,
+            fixable: true,
           });
 
           if (options?.fix) {
             this.registry.deleteRegistrationById(registration.id);
+            repairs.push({
+              ref: model.name,
+              message: `Cleared stale ${registration.client} registration.`,
+            });
             await emitWarning(
               options?.reporter,
               `Cleared stale ${registration.client} registration for ${model.name}`,
@@ -452,26 +464,36 @@ export class VirtualModelRegistry {
     if (options?.fix) {
       fixed = true;
       await emitInfo(options?.reporter, "Cleaning stale temporary files");
-      await this.cleanTempFiles();
+      repairs.push(...(await this.cleanTempFiles()));
       await emitInfo(options?.reporter, "Cleaning orphaned model roots");
-      await this.cleanOrphanModelRoots();
+      repairs.push(...(await this.cleanOrphanModelRoots()));
       await emitSuccess(options?.reporter, "Finished safe repair pass");
     }
 
     return {
+      checkedModels: models.length,
       ok:
         issues.filter((issue) => issue.severity === "error").length === 0 &&
         issues.length === 0,
       fixed,
       issues,
+      repairs,
     };
   }
 
-  private async cleanTempFiles(): Promise<void> {
-    await this.store.cleanupOrphanTemps(24 * 60 * 60 * 1000);
+  private async cleanTempFiles(): Promise<CheckRepair[]> {
+    const repairs: CheckRepair[] = [];
+    const removed = await this.store.cleanupOrphanTemps(24 * 60 * 60 * 1000);
+    for (const filePath of removed) {
+      repairs.push({
+        message: `Removed stale temporary file ${path.basename(filePath)}.`,
+      });
+    }
+    return repairs;
   }
 
-  private async cleanOrphanModelRoots(): Promise<void> {
+  private async cleanOrphanModelRoots(): Promise<CheckRepair[]> {
+    const repairs: CheckRepair[] = [];
     await ensureDir(this.options.dataPaths.modelsDir);
     const known = new Set(
       this.registry
@@ -484,7 +506,11 @@ export class VirtualModelRegistry {
         await removeIfExists(
           path.join(this.options.dataPaths.modelsDir, directory),
         );
+        repairs.push({
+          message: `Removed orphaned model root ${directory}.`,
+        });
       }
     }
+    return repairs;
   }
 }
