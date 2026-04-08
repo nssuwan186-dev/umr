@@ -515,6 +515,22 @@ function formatAddedModelMessage(
   return `${theme.success("Added model")} ${theme.model(options.name)} ${theme.success("to UMR")}`;
 }
 
+function formatErrorMessage(theme: CliTheme, message: string): string {
+  const [firstLine, ...rest] = message.split("\n");
+  const modelMatch = firstLine.match(
+    /^(Cannot remove model )(.+?)( while .+)$/,
+  );
+  const formattedFirstLine = modelMatch
+    ? `${theme.error(modelMatch[1])}${theme.model(modelMatch[2])}${theme.error(modelMatch[3])}`
+    : `${theme.error("error:")} ${firstLine}`;
+
+  if (rest.length === 0) {
+    return formattedFirstLine;
+  }
+
+  return [formattedFirstLine, ...rest].join("\n");
+}
+
 function formatGGUFFiles(files: HFSelectableFile[], theme: CliTheme): string {
   const width = Math.max(...files.map((file) => file.file.length), 0);
   return files
@@ -1430,7 +1446,7 @@ export async function runCli(
     }
 
     const managerError = asManagerError(error);
-    stderr(`${theme.error("error:")} ${managerError.message}`);
+    stderr(formatErrorMessage(theme, managerError.message));
     return managerError.exitCode;
   } finally {
     stdoutRaw.flush();

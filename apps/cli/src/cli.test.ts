@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { CheckResult } from "@umr/core";
+import { type CheckResult, ManagerError } from "@umr/core";
 
 import { runCli } from "./cli";
 
@@ -25,7 +25,15 @@ function createModel(overrides: Record<string, unknown> = {}) {
     ],
     createdAt: 0,
     sources: [],
-    registrations: [],
+    registrations: [] as Array<{
+      id: string;
+      modelId: string;
+      client: string;
+      clientRef: string;
+      state: Record<string, unknown>;
+      createdAt: number;
+      updatedAt: number;
+    }>,
     ...overrides,
   };
 }
@@ -141,7 +149,27 @@ function createFakeManager(options?: {
       clientRef: `${client}:${ref}`,
     }),
     unlink: async () => {},
-    remove: async () => {},
+    remove: async (selector: string) => {
+      const currentModel =
+        selector === model.ref || selector === model.name
+          ? model
+          : createModel();
+      if (currentModel.registrations.length > 0) {
+        const unlinkCommands = currentModel.registrations
+          .map(
+            (registration) =>
+              `  umr unlink ${registration.client} ${currentModel.name}`,
+          )
+          .join("\n");
+        throw new ManagerError(
+          `Cannot remove model ${currentModel.name} while links exist.\n\nUnlink it first:\n${unlinkCommands}`,
+          {
+            code: "model-still-linked",
+            exitCode: 2,
+          },
+        );
+      }
+    },
     check: async () =>
       options?.checkResult ?? {
         ok: true,
@@ -793,6 +821,69 @@ test("remove uses clean success wording", async () => {
 
   expect(code).toBe(0);
   expect(stdoutLines).toEqual(["Removed model tiny-model from UMR"]);
+});
+
+test("remove with existing links explains how to unlink first", async () => {
+  const stderrLines: string[] = [];
+  const code = await runCli(["remove", "tiny-model"], {
+    manager: createFakeManager({
+      model: createModel({
+        registrations: [
+          {
+            id: "2",
+            modelId: "1",
+            client: "lmstudio",
+            clientRef: "/tmp/models/tiny.gguf",
+            state: {},
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      }),
+    }) as never,
+    stdout: () => {},
+    stderr: (line) => stderrLines.push(line),
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(2);
+  expect(stderrLines).toEqual([
+    `Cannot remove model tiny-model while links exist.
+
+Unlink it first:
+  umr unlink lmstudio tiny-model`,
+  ]);
+});
+
+test("remove with existing links highlights the model name in color mode", async () => {
+  const stderrLines: string[] = [];
+  const code = await runCli(["remove", "tiny-model"], {
+    color: true,
+    manager: createFakeManager({
+      model: createModel({
+        registrations: [
+          {
+            id: "2",
+            modelId: "1",
+            client: "lmstudio",
+            clientRef: "/tmp/models/tiny.gguf",
+            state: {},
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      }),
+    }) as never,
+    stdout: () => {},
+    stderr: (line) => stderrLines.push(line),
+    stdoutRaw: () => {},
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(2);
+  expect(stderrLines[0]).toContain("\u001b[");
+  expect(stderrLines[0]).toContain("tiny-model");
 });
 
 test("check clean state prints a terse summary", async () => {

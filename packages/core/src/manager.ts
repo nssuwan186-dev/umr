@@ -355,8 +355,13 @@ export class UnifiedModelRegistry {
     await emitInfo(context?.reporter, `Resolving model ${selector}`);
     const model = this.getModel(selector);
     if (model.registrations.length > 0) {
+      const unlinkCommands = model.registrations
+        .map(
+          (registration) => `  umr unlink ${registration.client} ${model.name}`,
+        )
+        .join("\n");
       throw new ManagerError(
-        `Cannot remove ${selector} while target links exist`,
+        `Cannot remove model ${model.name} while links exist.\n\nUnlink it first:\n${unlinkCommands}`,
         {
           code: "model-still-linked",
           exitCode: 2,
