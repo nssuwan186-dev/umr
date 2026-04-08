@@ -296,6 +296,23 @@ Flags:
 `);
 });
 
+test("unknown command help falls back to the custom root help", async () => {
+  const stdoutRaw: string[] = [];
+
+  const code = await runCli(["nonexistentcommand", "--help"], {
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(stdoutRaw.join("")).toContain(
+    "UMR is the unified model registry for your local AI apps. (v0.1.0)",
+  );
+  expect(stdoutRaw.join("")).not.toContain("Usage: umr [options] [command]");
+});
+
 test("list prints a modern table with humanized sizes", async () => {
   const lines: string[] = [];
   const code = await runCli(["list"], {

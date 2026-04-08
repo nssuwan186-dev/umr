@@ -1010,8 +1010,42 @@ function shouldPrintCommandHelp(argv: string[], command: string): boolean {
   );
 }
 
+function isHelpToken(token: string | undefined): boolean {
+  return token === "--help" || token === "-h";
+}
+
+function shouldPrintFallbackRootHelp(argv: string[]): boolean {
+  const knownCommands = new Set([
+    "add",
+    "list",
+    "show",
+    "link",
+    "unlink",
+    "remove",
+    "check",
+    "help",
+  ]);
+  if (argv.length === 0) {
+    return false;
+  }
+
+  if (argv[0] === "help" && argv[1] && !knownCommands.has(argv[1])) {
+    return true;
+  }
+
+  return Boolean(
+    argv[0] &&
+      !knownCommands.has(argv[0]) &&
+      argv.some((arg) => isHelpToken(arg)),
+  );
+}
+
 function getCustomHelp(argv: string[], theme: CliTheme): string | null {
   if (shouldPrintRootHelp(argv)) {
+    return renderRootHelp(theme);
+  }
+
+  if (shouldPrintFallbackRootHelp(argv)) {
     return renderRootHelp(theme);
   }
 
