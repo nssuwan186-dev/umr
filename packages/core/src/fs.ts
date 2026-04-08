@@ -12,6 +12,16 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+interface HashProgressSink {
+  start(task: { label: string; totalBytes: number }): void | Promise<void>;
+  update(task: {
+    label: string;
+    completedBytes: number;
+    totalBytes: number;
+  }): void | Promise<void>;
+  finish(task: { label: string; totalBytes: number }): void | Promise<void>;
+}
+
 export async function ensureDir(dirPath: string): Promise<void> {
   await mkdir(dirPath, { recursive: true });
 }
@@ -25,15 +35,36 @@ export async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-export async function sha256File(filePath: string): Promise<string> {
+export async function sha256File(
+  filePath: string,
+  options?: {
+    progress?: HashProgressSink;
+    label?: string;
+    totalBytes?: number;
+  },
+): Promise<string> {
   const hash = createHash("sha256");
+  const totalBytes = options?.totalBytes ?? (await fileSize(filePath));
+  const label = options?.label ?? path.basename(filePath);
 
   await new Promise<void>((resolve, reject) => {
     const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
+    let completedBytes = 0;
+    void options?.progress?.start({ label, totalBytes });
+    stream.on("data", (chunk) => {
+      hash.update(chunk);
+      completedBytes += chunk.length;
+      void options?.progress?.update({
+        label,
+        completedBytes,
+        totalBytes,
+      });
+    });
     stream.on("error", reject);
     stream.on("end", () => resolve());
   });
+
+  await options?.progress?.finish({ label, totalBytes });
 
   return hash.digest("hex");
 }

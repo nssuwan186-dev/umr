@@ -58,7 +58,10 @@ async function safeCleanup(resolvedSource: ResolvedSource): Promise<void> {
   await resolvedSource.cleanup?.();
 }
 
-async function buildManifest(members: SourceMember[]): Promise<{
+async function buildManifest(
+  members: SourceMember[],
+  context?: OperationContext,
+): Promise<{
   manifest: ModelManifestMember[];
   totalSizeBytes: number;
 }> {
@@ -70,11 +73,12 @@ async function buildManifest(members: SourceMember[]): Promise<{
     let sizeBytes = member.sizeBytes;
 
     if (!sha256 || typeof sizeBytes !== "number") {
-      const computed = await Promise.all([
-        sha256File(member.sourcePath),
-        fileSize(member.sourcePath),
-      ]);
-      [sha256, sizeBytes] = computed;
+      sizeBytes = await fileSize(member.sourcePath);
+      sha256 = await sha256File(member.sourcePath, {
+        progress: context?.transferProgress,
+        label: `Hashing ${path.basename(member.relPath)}`,
+        totalBytes: sizeBytes,
+      });
     }
 
     manifest.push({
@@ -208,6 +212,7 @@ export class UnifiedModelRegistry {
       );
       const { manifest, totalSizeBytes } = await buildManifest(
         resolved.members,
+        context,
       );
       const contentDigest = deriveContentDigest(manifest);
       const existing = this.registry.getModelByContentDigest(contentDigest);
