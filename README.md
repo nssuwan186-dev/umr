@@ -98,3 +98,78 @@ umr show gemma-4-e2b-it --path
 # Run it with llama.cpp, for example
 llama-cli -m "$(umr show gemma-4-e2b-it --path)"
 ```
+
+# Docs
+
+UMR manages models in three layers:
+
+- **Source**: where a model comes from, like Hugging Face or a local file
+- **Model**: the canonical copy UMR tracks and stores
+- **Client**: an app that uses that model, like LM Studio, Ollama, or Jan
+
+Add a model once, then link it anywhere you want to use it.
+
+## Commands
+
+### `umr add`
+
+Add a model to UMR from Hugging Face or a local GGUF file.
+
+```bash
+umr add hf <repo>
+umr add ./model.gguf
+```
+
+### `umr list`
+
+List the models UMR is tracking, including source, format, linked clients, and status.
+
+```bash
+umr list
+```
+
+### `umr show`
+
+Show details for a tracked model, or print only the managed file path with `--path`.
+
+```bash
+umr show <model>
+umr show <model> --path
+```
+
+### `umr link`
+
+Link a tracked model to a client app.
+
+```bash
+umr link lmstudio <model>
+umr link ollama <model>
+umr link jan <model>
+```
+
+### `umr unlink`
+
+Remove a client link from a tracked model.
+
+```bash
+umr unlink lmstudio <model>
+umr unlink ollama <model>
+umr unlink jan <model>
+```
+
+### `umr remove`
+
+Remove a model from UMR. A model must be unlinked from all clients before it can be removed.
+
+```bash
+umr remove <model>
+```
+
+### `umr check`
+
+Check UMR for missing files or stale client links. Use `--fix` to remove stale UMR-side links automatically when it is safe to do so.
+
+```bash
+umr check
+umr check --fix
+```
