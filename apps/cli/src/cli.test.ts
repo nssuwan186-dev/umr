@@ -313,6 +313,25 @@ test("unknown command help falls back to the custom root help", async () => {
   expect(stdoutRaw.join("")).not.toContain("Usage: umr [options] [command]");
 });
 
+test("unknown command prints only the custom root help", async () => {
+  const stdoutRaw: string[] = [];
+  const stderrRaw: string[] = [];
+
+  const code = await runCli(["nonexistentcommand"], {
+    stdout: () => {},
+    stderr: () => {},
+    stdoutRaw: (chunk) => stdoutRaw.push(chunk),
+    stderrRaw: (chunk) => stderrRaw.push(chunk),
+  });
+
+  expect(code).toBe(1);
+  expect(stdoutRaw.join("")).toContain(
+    "UMR is the unified model registry for your local AI apps. (v0.1.0)",
+  );
+  expect(stdoutRaw.join("")).not.toContain("Usage: umr [options] [command]");
+  expect(stderrRaw.join("")).not.toContain("unknown command");
+});
+
 test("list prints a modern table with humanized sizes", async () => {
   const lines: string[] = [];
   const code = await runCli(["list"], {

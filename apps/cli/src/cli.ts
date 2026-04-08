@@ -1051,6 +1051,29 @@ function shouldPrintFallbackRootHelp(argv: string[]): boolean {
   );
 }
 
+function shouldPrintUnknownCommandRootHelp(argv: string[]): boolean {
+  const knownCommands = new Set([
+    "add",
+    "list",
+    "show",
+    "link",
+    "unlink",
+    "remove",
+    "check",
+    "help",
+  ]);
+  const first = argv[0];
+  if (!first) {
+    return false;
+  }
+
+  if (first.startsWith("-")) {
+    return false;
+  }
+
+  return !knownCommands.has(first);
+}
+
 function getCustomHelp(argv: string[], theme: CliTheme): string | null {
   if (shouldPrintRootHelp(argv)) {
     return renderRootHelp(theme);
@@ -1147,14 +1170,18 @@ export async function runCli(
     return 0;
   }
 
+  if (shouldPrintUnknownCommandRootHelp(argv)) {
+    stdoutRaw.write(renderRootHelp(theme));
+    stdoutRaw.flush();
+    return 1;
+  }
+
   const program = new Command();
   program
     .name("umr")
     .description("UMR")
     .option("-v, --verbose", "Show detailed progress")
     .version(UMR_VERSION, "--version", "Print version")
-    .showHelpAfterError()
-    .showSuggestionAfterError()
     .configureOutput({
       writeOut: (chunk) => stdoutRaw.write(chunk),
       writeErr: (chunk) => stderrRaw.write(chunk),
