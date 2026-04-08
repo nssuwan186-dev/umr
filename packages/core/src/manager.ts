@@ -10,7 +10,7 @@ import {
   removeIfExists,
   sha256File,
 } from "./fs";
-import { parseGGUF } from "./gguf";
+import { readGGUFHeader } from "./gguf";
 import {
   deriveContentDigest,
   deriveModelName,
@@ -442,7 +442,7 @@ export class UnifiedModelRegistry {
 
       if (await pathExists(model.entryPath)) {
         try {
-          await parseGGUF(model.entryPath);
+          await readGGUFHeader(model.entryPath);
         } catch (error) {
           issues.push({
             severity: "error",

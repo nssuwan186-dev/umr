@@ -167,11 +167,45 @@ async function readValue(
   }
 }
 
+export interface GGUFHeader {
+  format: "gguf";
+  version: number;
+  tensorCount: number;
+  metadataCount: number;
+}
+
 export interface GGUFSummary {
   format: "gguf";
   version: number;
   tensorCount: number;
   metadata: Record<string, JsonValue>;
+}
+
+export async function readGGUFHeader(filePath: string): Promise<GGUFHeader> {
+  const handle = await open(filePath, "r");
+  try {
+    const cursor = new FileCursor(filePath, handle);
+    const magic = (await cursor.readExactly(4)).toString("ascii");
+    if (magic !== GGUF_MAGIC) {
+      throw new ManagerError(`${filePath} is not a GGUF file`, {
+        code: "invalid-gguf",
+        exitCode: 2,
+      });
+    }
+
+    const version = await cursor.readU32();
+    const tensorCount = await cursor.readU64();
+    const metadataCount = await cursor.readU64();
+
+    return {
+      format: "gguf",
+      version,
+      tensorCount,
+      metadataCount,
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function parseGGUF(filePath: string): Promise<GGUFSummary> {

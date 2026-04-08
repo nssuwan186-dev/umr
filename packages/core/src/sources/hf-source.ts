@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { ManagerError } from "../errors";
-import { parseGGUF } from "../gguf";
+import { readGGUFHeader } from "../gguf";
 import { emitInfo } from "../progress";
 import { type CommandRunner, runOrThrow } from "../shell";
 import type {
@@ -260,13 +260,13 @@ with open(output_path, "w", encoding="utf-8") as handle:
 
     await emitInfo(
       context?.reporter,
-      `Reading GGUF metadata from ${selectedFile}`,
+      `Validating GGUF header for ${selectedFile}`,
     );
-    const summary = await parseGGUF(downloadPath);
+    const summary = await readGGUFHeader(downloadPath);
 
     return {
       format: summary.format,
-      metadata: summary.metadata,
+      metadata: {},
       provenance: {
         repo: input.repo,
         revision: inspection.resolvedRevision,

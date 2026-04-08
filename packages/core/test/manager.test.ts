@@ -121,3 +121,54 @@ test("model names are made unique when the base name collides", async () => {
   expect(umr.getModel("active").entryPath).toBe(first.model.entryPath);
   expect(umr.getModel("active-2").entryPath).toBe(second.model.entryPath);
 });
+
+test("hf-style imports derive the model name from the selected filename", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-hf-name-"));
+  const sourcePath = path.join(dir, "gemma-4-e2b-it-Q8_0.gguf");
+  await createTestGGUF(sourcePath, { "general.name": "Ignored Name" });
+
+  const sourceAdapters = new SourceAdapterRegistry();
+  sourceAdapters.register({
+    kind: () => "hf",
+    describe: () => ({
+      kind: "hf",
+      payload: {
+        repo: "ggml-org/gemma-4-E2B-it-GGUF",
+        file: "gemma-4-e2b-it-Q8_0.gguf",
+        revision: "abc123",
+      },
+    }),
+    resolve: async () => ({
+      format: "gguf" as const,
+      metadata: {},
+      provenance: {
+        repo: "ggml-org/gemma-4-E2B-it-GGUF",
+        file: "gemma-4-e2b-it-Q8_0.gguf",
+        revision: "abc123",
+      },
+      storeStrategy: "copy" as const,
+      entryRelPath: "gemma-4-e2b-it-Q8_0.gguf",
+      members: [
+        {
+          sourcePath,
+          relPath: "gemma-4-e2b-it-Q8_0.gguf",
+        },
+      ],
+    }),
+  });
+
+  const umr = new UnifiedModelRegistry({
+    dataPaths: resolveDataPaths({
+      UMR_HOME: path.join(dir, "home"),
+    }),
+    sourceAdapters,
+    registrarAdapters: new RegistrarAdapterRegistry(),
+  });
+
+  const added = await umr.addSource("hf", {
+    repo: "ggml-org/gemma-4-E2B-it-GGUF",
+    file: "gemma-4-e2b-it-Q8_0.gguf",
+  });
+
+  expect(added.model.name).toBe("gemma-4-e2b-it-q8-0");
+});
