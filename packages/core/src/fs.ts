@@ -13,13 +13,22 @@ import {
 import path from "node:path";
 
 interface HashProgressSink {
-  start(task: { label: string; totalBytes: number }): void | Promise<void>;
+  start(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void | Promise<void>;
   update(task: {
+    phase: string;
     label: string;
     completedBytes: number;
     totalBytes: number;
   }): void | Promise<void>;
-  finish(task: { label: string; totalBytes: number }): void | Promise<void>;
+  finish(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void | Promise<void>;
 }
 
 export async function ensureDir(dirPath: string): Promise<void> {
@@ -50,11 +59,12 @@ export async function sha256File(
   await new Promise<void>((resolve, reject) => {
     const stream = createReadStream(filePath);
     let completedBytes = 0;
-    void options?.progress?.start({ label, totalBytes });
+    void options?.progress?.start({ phase: "Hashing", label, totalBytes });
     stream.on("data", (chunk) => {
       hash.update(chunk);
       completedBytes += chunk.length;
       void options?.progress?.update({
+        phase: "Hashing",
         label,
         completedBytes,
         totalBytes,
@@ -64,7 +74,7 @@ export async function sha256File(
     stream.on("end", () => resolve());
   });
 
-  await options?.progress?.finish({ label, totalBytes });
+  await options?.progress?.finish({ phase: "Hashing", label, totalBytes });
 
   return hash.digest("hex");
 }

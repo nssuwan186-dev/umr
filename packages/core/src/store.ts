@@ -29,7 +29,11 @@ export class ModelStore {
 
     try {
       targetHandle = await open(targetPath, "w");
-      await context?.transferProgress?.start({ label, totalBytes });
+      await context?.transferProgress?.start({
+        phase: "Copying",
+        label,
+        totalBytes,
+      });
 
       while (true) {
         const { bytesRead } = await sourceHandle.read(
@@ -45,6 +49,7 @@ export class ModelStore {
         await targetHandle.write(buffer.subarray(0, bytesRead));
         completedBytes += bytesRead;
         await context?.transferProgress?.update({
+          phase: "Copying",
           label,
           completedBytes,
           totalBytes,
@@ -53,7 +58,11 @@ export class ModelStore {
     } finally {
       await sourceHandle.close();
       await targetHandle?.close();
-      await context?.transferProgress?.finish({ label, totalBytes });
+      await context?.transferProgress?.finish({
+        phase: "Copying",
+        label,
+        totalBytes,
+      });
     }
   }
 

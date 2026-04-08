@@ -27,13 +27,22 @@ export interface StreamSink {
 }
 
 export interface TransferProgressSink {
-  start(task: { label: string; totalBytes: number }): void | Promise<void>;
+  start(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void | Promise<void>;
   update(task: {
+    phase: string;
     label: string;
     completedBytes: number;
     totalBytes: number;
   }): void | Promise<void>;
-  finish(task: { label: string; totalBytes: number }): void | Promise<void>;
+  finish(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void | Promise<void>;
 }
 
 export interface OperationContext {

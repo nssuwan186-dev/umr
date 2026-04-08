@@ -942,7 +942,11 @@ class CliTransferProgress implements TransferProgressSink {
     private readonly flush: () => void,
   ) {}
 
-  start(task: { label: string; totalBytes: number }): void {
+  start(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void {
     if (!this.enabled) {
       return;
     }
@@ -954,7 +958,7 @@ class CliTransferProgress implements TransferProgressSink {
         clearOnComplete: true,
         hideCursor: true,
         format:
-          "Copying {label} [{bar}] {percentage}% | {value_formatted}/{total_formatted}",
+          "{phase} {label} [{bar}] {percentage}% | {value_formatted}/{total_formatted}",
         stream: process.stderr,
         stopOnComplete: true,
       },
@@ -962,6 +966,7 @@ class CliTransferProgress implements TransferProgressSink {
     );
     this.#bar = bar;
     bar.start(task.totalBytes, 0, {
+      phase: task.phase,
       label: task.label,
       value_formatted: humanizeBytes(0),
       total_formatted: humanizeBytes(task.totalBytes),
@@ -969,6 +974,7 @@ class CliTransferProgress implements TransferProgressSink {
   }
 
   update(task: {
+    phase: string;
     label: string;
     completedBytes: number;
     totalBytes: number;
@@ -978,18 +984,24 @@ class CliTransferProgress implements TransferProgressSink {
     }
 
     this.#bar.update(task.completedBytes, {
+      phase: task.phase,
       label: task.label,
       value_formatted: humanizeBytes(task.completedBytes),
       total_formatted: humanizeBytes(task.totalBytes),
     });
   }
 
-  finish(task: { label: string; totalBytes: number }): void {
+  finish(task: {
+    phase: string;
+    label: string;
+    totalBytes: number;
+  }): void {
     if (!this.enabled || !this.#bar) {
       return;
     }
 
     this.#bar.update(task.totalBytes, {
+      phase: task.phase,
       label: task.label,
       value_formatted: humanizeBytes(task.totalBytes),
       total_formatted: humanizeBytes(task.totalBytes),
