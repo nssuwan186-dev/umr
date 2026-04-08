@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { ManagerError } from "../errors";
 import { pathExists } from "../fs";
-import { parseGGUF } from "../gguf";
+import { readGGUFHeader } from "../gguf";
 import { emitInfo } from "../progress";
 import type { OperationContext, ResolvedSource, SourceAdapter } from "../types";
 
@@ -56,12 +56,16 @@ export class PathSourceAdapter implements SourceAdapter<PathSourceInput> {
       });
     }
 
-    const summary = await parseGGUF(localPath);
+    await emitInfo(
+      context?.reporter,
+      `Validating GGUF header for ${localPath}`,
+    );
+    const header = await readGGUFHeader(localPath);
     const relPath = path.basename(localPath);
 
     return {
-      format: summary.format,
-      metadata: summary.metadata,
+      format: header.format,
+      metadata: {},
       provenance: {
         originalPath: localPath,
       },

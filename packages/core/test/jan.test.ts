@@ -57,7 +57,7 @@ test("jan link writes model.yml pointing at the managed GGUF", async () => {
   expect(config).toContain(
     `model_path: ${JSON.stringify(added.model.entryPath)}`,
   );
-  expect(config).toContain('name: "Tiny Test Model"');
+  expect(config).toContain('name: "tiny"');
   expect(config).toContain(`size_bytes: ${entryMember?.sizeBytes}`);
   expect(config).toContain(`model_sha256: ${entryMember?.sha256}`);
 });
