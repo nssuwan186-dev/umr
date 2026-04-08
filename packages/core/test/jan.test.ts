@@ -36,7 +36,7 @@ function createVMR(dir: string, janDataDir: string): UnifiedModelRegistry {
   });
 }
 
-test("jan register writes model.yml pointing at the managed GGUF", async () => {
+test("jan link writes model.yml pointing at the managed GGUF", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-jan-"));
   const janDataDir = path.join(dir, "Jan", "data");
   await mkdir(janDataDir, { recursive: true });
@@ -62,8 +62,8 @@ test("jan register writes model.yml pointing at the managed GGUF", async () => {
   expect(config).toContain(`model_sha256: ${entryMember?.sha256}`);
 });
 
-test("jan unregister removes only Jan-managed metadata", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "umr-jan-unregister-"));
+test("jan unlink removes only Jan-managed metadata", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-jan-unlink-"));
   const janDataDir = path.join(dir, "Jan", "data");
   await mkdir(janDataDir, { recursive: true });
   const sourcePath = path.join(dir, "tiny.gguf");

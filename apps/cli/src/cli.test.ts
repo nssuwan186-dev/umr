@@ -137,10 +137,6 @@ function createFakeManager(options?: {
             },
           ],
     }),
-    register: async (client: string, ref: string) => ({
-      clientRef: `${client}:${ref}`,
-    }),
-    unregister: async () => {},
     link: async (client: string, ref: string) => ({
       clientRef: `${client}:${ref}`,
     }),
@@ -652,7 +648,7 @@ test("link and unlink use clean target-facing wording", async () => {
   expect(stdoutLines).toEqual(["Linked tiny-model to LM Studio"]);
 
   stdoutLines.length = 0;
-  const unregisterCode = await runCli(["unlink", "lmstudio", "tiny-model"], {
+  const unlinkCode = await runCli(["unlink", "lmstudio", "tiny-model"], {
     manager: createFakeManager() as never,
     stdout: (line) => stdoutLines.push(line),
     stderr: () => {},
@@ -660,7 +656,7 @@ test("link and unlink use clean target-facing wording", async () => {
     stderrRaw: () => {},
   });
 
-  expect(unregisterCode).toBe(0);
+  expect(unlinkCode).toBe(0);
   expect(stdoutLines).toEqual(["Unlinked tiny-model from LM Studio"]);
 });
 

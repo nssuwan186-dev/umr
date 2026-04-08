@@ -46,7 +46,7 @@ test("add path copies into managed model root and survives source move", async (
   expect(umr.getModel(added.model.name).ref).toBe(added.model.ref);
 });
 
-test("generic adapters plug into add/register/remove flow for multi-member models", async () => {
+test("generic adapters plug into add/link/remove flow for multi-member models", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-generic-"));
   const entryPath = path.join(dir, "fake.gguf");
   const auxPath = path.join(dir, "config.json");

@@ -69,7 +69,7 @@ function createVMR(
   });
 }
 
-test("lmstudio register and unregister manage a deterministic target path", async () => {
+test("lmstudio link and unlink manage a deterministic target path", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
@@ -92,7 +92,7 @@ test("lmstudio register and unregister manage a deterministic target path", asyn
   ).toBeFalse();
 });
 
-test("lmstudio register prefers an HF-derived managed repo path", async () => {
+test("lmstudio link prefers an HF-derived managed repo path", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-hf-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
@@ -113,7 +113,7 @@ test("lmstudio register prefers an HF-derived managed repo path", async () => {
   );
 });
 
-test("lmstudio register refreshes an existing managed target", async () => {
+test("lmstudio link refreshes an existing managed target", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-refresh-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
@@ -132,7 +132,7 @@ test("lmstudio register refreshes an existing managed target", async () => {
   );
 });
 
-test("lmstudio unregister tolerates manual removal of the managed path", async () => {
+test("lmstudio unlink tolerates manual removal of the managed path", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-unreg-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
