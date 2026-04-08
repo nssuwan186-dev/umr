@@ -10,11 +10,12 @@ import {
   type ModelDetails,
   type ProgressEvent,
   type StreamSink,
-  type VirtualModelRegistry,
+  type UnifiedModelRegistry,
   asManagerError,
-  createDefaultVMR,
-} from "@vmr/core";
+  createDefaultUMR,
+} from "@umr/core";
 import { Command, CommanderError } from "commander";
+import { type CliTheme, createTheme } from "./theme";
 
 interface PromptOption {
   value: string;
@@ -23,7 +24,7 @@ interface PromptOption {
 }
 
 type HFSelectionState =
-  | "already-added-to-vmr"
+  | "already-added-to-umr"
   | "available-locally-in-hf"
   | "download-required";
 
@@ -46,40 +47,228 @@ interface BufferedRawWriter {
   flush(): void;
 }
 
-const ROOT_HELP = `Virtual Model Registry
+const UMR_VERSION = "0.1.0";
 
-Usage:
-  vmr <command> [...flags]
+interface HelpRow {
+  command: string;
+  usage: string;
+  description: string;
+}
 
-Commands:
-  add <path>                  Add a local model
-  add hf <repo>               Add a model from Hugging Face
-  list                        List tracked models
-  show <model>                Show model details
-  link <target> <model>       Link a model to a target app
-  unlink <target> <model>     Remove a model link from a target app
-  remove <model>              Remove a model from VMR
-  check                       Check VMR state and target links
+const SOURCE_ROWS: HelpRow[] = [
+  {
+    command: "<path>",
+    usage: "",
+    description: "Local file or directory",
+  },
+  {
+    command: "hf",
+    usage: "",
+    description: "Hugging Face repo",
+  },
+];
 
-Flags:
-  -v, --verbose               Show detailed progress
-  -h, --help                  Print help
+const TARGET_ROWS: HelpRow[] = [
+  {
+    command: "lmstudio",
+    usage: "",
+    description: "LM Studio",
+  },
+  {
+    command: "ollama",
+    usage: "",
+    description: "Ollama",
+  },
+  {
+    command: "jan",
+    usage: "",
+    description: "Jan",
+  },
+];
 
-Use \`vmr <command> --help\` for more information about a command.
-`;
+function formatHelpRows(
+  rows: HelpRow[],
+  theme: CliTheme,
+  options?: { usageStyle?: "accent" | "command" | "plain" },
+): string[] {
+  const commandWidth = Math.max(...rows.map((row) => row.command.length), 0);
+  const usageWidth = Math.max(...rows.map((row) => row.usage.length), 0);
+  const usageStyle = options?.usageStyle ?? "accent";
 
-const ADD_HELP = `Usage:
-  vmr add <path>
-  vmr add hf <repo> [--file <name>] [--revision <rev>] [--yes]
+  return rows.map((row) => {
+    const commandColumn = row.command
+      ? theme.command(row.command.padEnd(commandWidth))
+      : "".padEnd(commandWidth);
+    const usageText = row.usage.padEnd(usageWidth);
+    const usageColumn =
+      usageStyle === "command"
+        ? theme.command(usageText)
+        : usageStyle === "plain"
+          ? usageText
+          : theme.accent(usageText);
 
-Add a model from a local path or Hugging Face.
+    if (usageWidth > 0) {
+      return `  ${commandColumn}  ${usageColumn}  ${theme.description(row.description)}`;
+    }
 
-Options:
-  --file <name>               Choose a GGUF file from the repo
-  --revision <rev>            Resolve a specific branch, tag, or commit
-  -y, --yes                   Skip download confirmation
-  -h, --help                  Print help
-`;
+    return `  ${commandColumn}  ${theme.description(row.description)}`;
+  });
+}
+
+function renderRootHelp(theme: CliTheme): string {
+  const commandRows = [
+    {
+      command: "add",
+      usage: "<source>",
+      description: "Add a model to UMR",
+    },
+    {
+      command: "",
+      usage: "hf <repo>",
+      description: "Add a model from Hugging Face",
+    },
+    {
+      command: "",
+      usage: "<path>",
+      description: "Add a local model",
+    },
+    {
+      command: "link",
+      usage: "<target> <model>",
+      description: "Link a model to a target app",
+    },
+    {
+      command: "unlink",
+      usage: "<target> <model>",
+      description: "Remove a model link from a target app",
+    },
+    {
+      command: "list",
+      usage: "",
+      description: "List tracked models",
+    },
+    {
+      command: "show",
+      usage: "<model>",
+      description: "Show model details",
+    },
+    {
+      command: "remove",
+      usage: "<model>",
+      description: "Remove a model from UMR",
+    },
+    {
+      command: "check",
+      usage: "",
+      description: "Check UMR state and target links",
+    },
+    {
+      command: "<command>",
+      usage: "--help",
+      description: "Print help text for command",
+    },
+  ];
+  const flagRows = [
+    {
+      command: "-v, --verbose",
+      usage: "",
+      description: "Show detailed progress",
+    },
+    {
+      command: "-h, --help",
+      usage: "",
+      description: "Print help",
+    },
+    {
+      command: "--version",
+      usage: "",
+      description: "Print version",
+    },
+  ];
+
+  return [
+    `${theme.product("UMR")} is the unified model registry for your local AI apps. ${theme.muted(`(v${UMR_VERSION})`)}`,
+    "",
+    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.accent("<command>")} ${theme.accent("[...flags]")} ${theme.accent("[...args]")}`,
+    "",
+    theme.heading("Commands:"),
+    ...formatHelpRows(commandRows, theme),
+    "",
+    theme.heading("Sources:"),
+    ...formatHelpRows(SOURCE_ROWS, theme, { usageStyle: "plain" }),
+    "",
+    theme.heading("Targets:"),
+    ...formatHelpRows(TARGET_ROWS, theme, { usageStyle: "plain" }),
+    "",
+    theme.heading("Flags:"),
+    ...formatHelpRows(flagRows, theme, { usageStyle: "plain" }),
+    "",
+  ].join("\n");
+}
+
+function renderAddHelp(theme: CliTheme): string {
+  const optionRows = [
+    {
+      command: "--file <name>",
+      usage: "",
+      description: "Choose a GGUF file from the repo",
+    },
+    {
+      command: "--revision <rev>",
+      usage: "",
+      description: "Resolve a branch, tag, or commit",
+    },
+    {
+      command: "-y, --yes",
+      usage: "",
+      description: "Skip download confirmation",
+    },
+    {
+      command: "-h, --help",
+      usage: "",
+      description: "Print help",
+    },
+  ];
+
+  return [
+    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.command("add")} ${theme.accent("<path>")}`,
+    `       ${theme.command("umr")} ${theme.command("add")} ${theme.command("hf")} ${theme.accent("<repo>")} ${theme.accent("[--file <name>]")} ${theme.accent("[--revision <rev>]")} ${theme.accent("[--yes]")}`,
+    "",
+    "Add a model from a local path or Hugging Face.",
+    "",
+    theme.heading("Sources:"),
+    ...formatHelpRows(SOURCE_ROWS, theme, { usageStyle: "plain" }),
+    "",
+    theme.heading("Options:"),
+    ...formatHelpRows(optionRows, theme, { usageStyle: "plain" }),
+    "",
+  ].join("\n");
+}
+
+function renderLinkHelp(theme: CliTheme, verb: "link" | "unlink"): string {
+  const optionRows = [
+    {
+      command: "-h, --help",
+      usage: "",
+      description: "Print help",
+    },
+  ];
+
+  return [
+    `${theme.heading("Usage:")} ${theme.command("umr")} ${theme.command(verb)} ${theme.accent("<target>")} ${theme.accent("<model>")}`,
+    "",
+    verb === "link"
+      ? "Link a model to a target app."
+      : "Remove a model link from a target app.",
+    "",
+    theme.heading("Targets:"),
+    ...formatHelpRows(TARGET_ROWS, theme, { usageStyle: "plain" }),
+    "",
+    theme.heading("Options:"),
+    ...formatHelpRows(optionRows, theme, { usageStyle: "plain" }),
+    "",
+  ].join("\n");
+}
 
 function humanizeBytes(size: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -99,30 +288,42 @@ function humanizeBytes(size: number): string {
   return `${formatted.replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")} ${units[unitIndex]}`;
 }
 
-function formatSource(model: ModelDetails): string {
+function describeSource(model: ModelDetails): {
+  label: string;
+  repo?: string;
+} {
   const hfSource = model.sources.find((source) => {
     const repo = source.payload.repo;
     return source.kind === "hf" && typeof repo === "string" && repo.trim();
   });
   if (hfSource) {
-    return String(hfSource.payload.repo);
+    return {
+      label: "Hugging Face",
+      repo: String(hfSource.payload.repo),
+    };
   }
 
   if (model.sources.some((source) => source.kind === "path")) {
-    return "local path";
+    return { label: "Local path" };
   }
 
-  return model.sources[0]?.kind ?? "unknown";
+  return {
+    label: model.sources[0]?.kind ?? "Unknown",
+  };
 }
 
-function formatTargets(model: ModelDetails): string {
-  if (model.registrations.length === 0) {
+function formatTargetNames(targets: string[]): string {
+  if (targets.length === 0) {
     return "none";
   }
 
-  return model.registrations
-    .map((registration) => registration.client)
-    .join(",");
+  return targets.map((target) => formatClientName(target)).join(", ");
+}
+
+function formatTargets(model: ModelDetails): string {
+  return formatTargetNames(
+    model.registrations.map((registration) => registration.client),
+  );
 }
 
 function formatClientName(client: string): string {
@@ -138,11 +339,12 @@ function formatClientName(client: string): string {
   }
 }
 
-function formatGGUFFiles(files: HFSelectableFile[]): string {
+function formatGGUFFiles(files: HFSelectableFile[], theme: CliTheme): string {
+  const width = Math.max(...files.map((file) => file.file.length), 0);
   return files
     .map(
       (file) =>
-        `  ${file.file.padEnd(42)} ${formatHFSelectionState(file.state)}`,
+        `  ${file.file.padEnd(width)}  ${formatHFSelectionState(file.state, theme)}`,
     )
     .join("\n");
 }
@@ -151,15 +353,15 @@ function formatCheckIssue(issue: CheckIssue): string {
   switch (issue.code) {
     case "missing-model-root":
     case "missing-entry-path":
-      return "Missing model file. Re-add the model or remove it from VMR.";
+      return "Missing model file. Re-add the model or remove it from UMR.";
   }
 
   if (issue.code.startsWith("missing-member:")) {
-    return "Missing model file. Re-add the model or remove it from VMR.";
+    return "Missing model file. Re-add the model or remove it from UMR.";
   }
 
   if (issue.code.startsWith("member-size-mismatch:")) {
-    return "Model files no longer match VMR metadata. Re-add the model.";
+    return "Model files no longer match UMR metadata. Re-add the model.";
   }
 
   if (issue.code.startsWith("invalid-gguf:")) {
@@ -182,20 +384,49 @@ function formatCheckIssue(issue: CheckIssue): string {
     return "Jan link needs attention.";
   }
 
-  return "VMR detected an issue that requires attention.";
+  return "UMR detected an issue that requires attention.";
 }
 
-function printCheck(result: CheckResult, write: (line: string) => void): void {
+function formatDetailLine(
+  theme: CliTheme,
+  label: string,
+  value: string,
+  options?: { valueColor?: "accent" | "dim" | "model" | "plain" },
+): string {
+  const labelColumn = theme.label(label.padEnd(8));
+  let renderedValue = value;
+  switch (options?.valueColor) {
+    case "accent":
+      renderedValue = theme.accent(value);
+      break;
+    case "dim":
+      renderedValue = theme.dim(value);
+      break;
+    case "model":
+      renderedValue = theme.model(value);
+      break;
+    default:
+      break;
+  }
+
+  return `  ${labelColumn}  ${renderedValue}`;
+}
+
+function printCheck(
+  result: CheckResult,
+  write: (line: string) => void,
+  theme: CliTheme,
+): void {
   if (result.issues.length === 0) {
     if (result.repairs.length > 0) {
       write(
         `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}.`,
       );
       write("");
-      write("Fixed");
+      write(theme.success(theme.heading("Fixed")));
       for (const repair of result.repairs) {
         if (repair.ref) {
-          write(`  ${repair.ref}`);
+          write(`  ${theme.model(repair.ref)}`);
           write(`    ${repair.message}`);
         } else {
           write(`  ${repair.message}`);
@@ -205,7 +436,7 @@ function printCheck(result: CheckResult, write: (line: string) => void): void {
     }
 
     write(
-      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. No issues found.`,
+      `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. ${theme.success("No issues found.")}`,
     );
     return;
   }
@@ -216,10 +447,10 @@ function printCheck(result: CheckResult, write: (line: string) => void): void {
       `Checked ${result.checkedModels} ${result.checkedModels === 1 ? "model" : "models"}. Fixed ${result.repairs.length} ${result.repairs.length === 1 ? "issue" : "issues"}. ${result.issues.length} ${result.issues.length === 1 ? "issue remains" : "issues remain"}.`,
     );
     write("");
-    write("Fixed");
+    write(theme.success(theme.heading("Fixed")));
     for (const repair of result.repairs) {
       if (repair.ref) {
-        write(`  ${repair.ref}`);
+        write(`  ${theme.model(repair.ref)}`);
         write(`    ${repair.message}`);
       } else {
         write(`  ${repair.message}`);
@@ -240,7 +471,7 @@ function printCheck(result: CheckResult, write: (line: string) => void): void {
     { fixable: boolean; messages: string[] }
   >();
   for (const issue of result.issues) {
-    const ref = issue.ref ?? "VMR";
+    const ref = issue.ref ?? "UMR";
     const existing = groupedIssues.get(ref);
     if (existing) {
       existing.fixable ||= issue.fixable;
@@ -259,7 +490,9 @@ function printCheck(result: CheckResult, write: (line: string) => void): void {
     if (!firstGroup) {
       write("");
     }
-    write(`${ref}${group.fixable ? " (Fixable)" : ""}`);
+    write(
+      `${theme.model(ref)}${group.fixable ? ` ${theme.fixable("(Fixable)")}` : ""}`,
+    );
     for (const message of group.messages) {
       write(`  ${message}`);
     }
@@ -268,13 +501,14 @@ function printCheck(result: CheckResult, write: (line: string) => void): void {
 
   if (fixableCount > 0 && result.repairs.length === 0) {
     write("");
-    write("Run `vmr check --fix` to apply safe repairs.");
+    write(`Run ${theme.accent("`umr check --fix`")} to apply safe repairs.`);
   }
 }
 
 function printList(
-  rows: Awaited<ReturnType<VirtualModelRegistry["listModels"]>>,
+  rows: Awaited<ReturnType<UnifiedModelRegistry["listModels"]>>,
   write: (line: string) => void,
+  theme: CliTheme,
 ): void {
   if (rows.length === 0) {
     write("No models found.");
@@ -285,20 +519,32 @@ function printList(
     "NAME".length,
     ...rows.map((row) => row.name.length),
   );
+  const sizeWidth = Math.max(
+    "SIZE".length,
+    ...rows.map((row) => humanizeBytes(row.totalSizeBytes).length),
+  );
   const clientWidth = Math.max(
     "TARGETS".length,
     ...rows.map((row) =>
-      row.registrations.length > 0 ? row.registrations.join(",").length : 1,
+      row.registrations.length > 0
+        ? formatTargetNames(row.registrations).length
+        : 1,
     ),
   );
+  const statusWidth = Math.max(
+    "STATUS".length,
+    ...rows.map((row) => row.health.length),
+  );
   write(
-    `${"NAME".padEnd(nameWidth)}  ${"SIZE".padEnd(8)}  ${"TARGETS".padEnd(clientWidth)}  STATUS`,
+    `${theme.heading(theme.dim("NAME".padEnd(nameWidth)))}  ${theme.heading(theme.dim("SIZE".padEnd(sizeWidth)))}  ${theme.heading(theme.dim("TARGETS".padEnd(clientWidth)))}  ${theme.heading(theme.dim("STATUS".padEnd(statusWidth)))}`,
   );
   for (const row of rows) {
     const registrations =
-      row.registrations.length > 0 ? row.registrations.join(",") : "-";
+      row.registrations.length > 0 ? formatTargetNames(row.registrations) : "-";
+    const status =
+      row.health === "ok" ? theme.success(row.health) : theme.error(row.health);
     write(
-      `${row.name.padEnd(nameWidth)}  ${humanizeBytes(row.totalSizeBytes).padEnd(8)}  ${registrations.padEnd(clientWidth)}  ${row.health}`,
+      `${theme.model(row.name.padEnd(nameWidth))}  ${humanizeBytes(row.totalSizeBytes).padEnd(sizeWidth)}  ${registrations === "-" ? theme.dim(registrations.padEnd(clientWidth)) : registrations.padEnd(clientWidth)}  ${status}`,
     );
   }
 }
@@ -384,6 +630,7 @@ function createStreamSink(
 class CliProgressReporter {
   constructor(
     private readonly write: (line: string) => void,
+    private readonly theme: CliTheme,
     private enabled = false,
   ) {}
 
@@ -397,34 +644,37 @@ class CliProgressReporter {
     }
 
     if (event.level === "warning") {
-      this.write(`warn: ${event.message}`);
+      this.write(`${this.theme.warning("warn:")} ${event.message}`);
       return;
     }
 
     if (event.level === "success") {
-      this.write(`ok: ${event.message}`);
+      this.write(`${this.theme.success("ok:")} ${event.message}`);
       return;
     }
 
-    this.write(`-> ${event.message}`);
+    this.write(`${this.theme.dim("->")} ${event.message}`);
   }
 }
 
-function formatHFSelectionState(state: HFSelectionState): string {
+function formatHFSelectionState(
+  state: HFSelectionState,
+  theme: CliTheme,
+): string {
   switch (state) {
-    case "already-added-to-vmr":
-      return "Already Added to VMR";
+    case "already-added-to-umr":
+      return theme.success("Already Added to UMR");
     case "available-locally-in-hf":
-      return "Available Locally in HF";
+      return theme.accent("Available Locally in HF");
     case "download-required":
-      return "Download Required";
+      return theme.warning("Download Required");
   }
 }
 
 function getHFSelectableFiles(
-  manager: VirtualModelRegistry,
+  manager: UnifiedModelRegistry,
   repo: string,
-  inspection: Awaited<ReturnType<VirtualModelRegistry["inspectHFSource"]>>,
+  inspection: Awaited<ReturnType<UnifiedModelRegistry["inspectHFSource"]>>,
 ): HFSelectableFile[] {
   return inspection.ggufFiles.map((file) => {
     const trackedModel = manager.findTrackedSource("hf", {
@@ -435,7 +685,7 @@ function getHFSelectableFiles(
     if (trackedModel) {
       return {
         file,
-        state: "already-added-to-vmr",
+        state: "already-added-to-umr",
         trackedModel,
       };
     }
@@ -455,13 +705,14 @@ function getHFSelectableFiles(
 }
 
 async function resolveHFFileSelection(
-  manager: VirtualModelRegistry,
+  manager: UnifiedModelRegistry,
   repo: string,
   revision: string | undefined,
   requestedFile: string | undefined,
   interactive: boolean,
   prompts: PromptClient,
   reporter: CliProgressReporter,
+  theme: CliTheme,
 ): Promise<{
   file: string;
   resolvedRevision: string;
@@ -479,7 +730,7 @@ async function resolveHFFileSelection(
     );
     if (!selected) {
       throw new ManagerError(
-        `GGUF file not found in ${repo}: ${requestedFile}\nAvailable GGUF files:\n${formatGGUFFiles(selectableFiles)}`,
+        `GGUF file not found in ${repo}: ${requestedFile}\nAvailable GGUF files:\n${formatGGUFFiles(selectableFiles, theme)}`,
         {
           code: "hf-missing-file",
           exitCode: 2,
@@ -504,7 +755,7 @@ async function resolveHFFileSelection(
 
   if (!interactive) {
     throw new ManagerError(
-      `Multiple GGUF files found in ${repo}; rerun with --file explicitly:\n${formatGGUFFiles(selectableFiles)}`,
+      `Multiple GGUF files found in ${repo}.\nUse --file to choose one:\n${formatGGUFFiles(selectableFiles, theme)}`,
       {
         code: "hf-file-required",
         exitCode: 2,
@@ -517,7 +768,7 @@ async function resolveHFFileSelection(
     options: selectableFiles.map((candidate) => ({
       value: candidate.file,
       label: candidate.file,
-      hint: formatHFSelectionState(candidate.state),
+      hint: formatHFSelectionState(candidate.state, theme),
     })),
   });
   const selected = selectableFiles.find((candidate) => candidate.file === file);
@@ -562,7 +813,7 @@ async function confirmHFInstall(
   }
 
   return prompts.confirm({
-    message: `Download and add to VMR?\nRepo: ${repo}\nFile: ${selected.file}\nRevision: ${resolvedRevision}`,
+    message: `Download and add to UMR?\nRepo: ${repo}\nFile: ${selected.file}\nRevision: ${resolvedRevision}`,
   });
 }
 
@@ -586,11 +837,21 @@ function shouldPrintAddHelp(argv: string[]): boolean {
   );
 }
 
+function shouldPrintCommandHelp(argv: string[], command: string): boolean {
+  return (
+    (argv[0] === command &&
+      argv.some((arg) => arg === "--help" || arg === "-h")) ||
+    (argv[0] === "help" && argv[1] === command)
+  );
+}
+
 export async function runCli(
   argv: string[],
   options?: {
-    manager?: VirtualModelRegistry;
-    createManager?: () => VirtualModelRegistry;
+    manager?: UnifiedModelRegistry;
+    createManager?: () => UnifiedModelRegistry;
+    color?: boolean;
+    env?: Record<string, string | undefined>;
     stdout?: (line: string) => void;
     stderr?: (line: string) => void;
     stdoutRaw?: (chunk: string) => void;
@@ -600,6 +861,12 @@ export async function runCli(
     verbose?: boolean;
   },
 ): Promise<number> {
+  const env = options?.env ?? process.env;
+  const theme = createTheme({
+    color: options?.color,
+    env,
+    isTTY: Boolean(process.stdout.isTTY),
+  });
   const stdout = options?.stdout ?? ((line: string) => console.log(line));
   const stderr = options?.stderr ?? ((line: string) => console.error(line));
   const stdoutRaw = createBufferedRawWriter(
@@ -612,6 +879,7 @@ export async function runCli(
   );
   const reporter = new CliProgressReporter(
     stderr,
+    theme,
     options?.verbose ?? hasVerboseFlag(argv),
   );
   const streamSink = createStreamSink(stderrRaw, stdoutRaw);
@@ -620,28 +888,42 @@ export async function runCli(
     Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const prompts = options?.prompts ?? createDefaultPromptClient();
   let manager = options?.manager;
-  const getManager = (): VirtualModelRegistry => {
-    manager ??= options?.createManager?.() ?? createDefaultVMR();
+  const getManager = (): UnifiedModelRegistry => {
+    manager ??= options?.createManager?.() ?? createDefaultUMR(env);
     return manager;
   };
+  let exitCode = 0;
 
   if (shouldPrintRootHelp(argv)) {
-    stdoutRaw.write(ROOT_HELP);
+    stdoutRaw.write(renderRootHelp(theme));
     stdoutRaw.flush();
     return 0;
   }
 
   if (shouldPrintAddHelp(argv)) {
-    stdoutRaw.write(ADD_HELP);
+    stdoutRaw.write(renderAddHelp(theme));
+    stdoutRaw.flush();
+    return 0;
+  }
+
+  if (shouldPrintCommandHelp(argv, "link")) {
+    stdoutRaw.write(renderLinkHelp(theme, "link"));
+    stdoutRaw.flush();
+    return 0;
+  }
+
+  if (shouldPrintCommandHelp(argv, "unlink")) {
+    stdoutRaw.write(renderLinkHelp(theme, "unlink"));
     stdoutRaw.flush();
     return 0;
   }
 
   const program = new Command();
   program
-    .name("vmr")
-    .description("Virtual Model Registry")
+    .name("umr")
+    .description("UMR")
     .option("-v, --verbose", "Show detailed progress")
+    .version(UMR_VERSION, "--version", "Print version")
     .showHelpAfterError()
     .showSuggestionAfterError()
     .configureOutput({
@@ -662,7 +944,7 @@ export async function runCli(
     .command("add")
     .description("Add a local path or an explicit source")
     .usage(
-      "hf <repo> [--file <filename>] [--revision <rev>] [--yes]\n  vmr add <path>",
+      "hf <repo> [--file <filename>] [--revision <rev>] [--yes]\n  umr add <path>",
     )
     .argument("<sourceOrPath>", "Source keyword or local path")
     .argument("[value]", "Source-specific value")
@@ -701,6 +983,7 @@ export async function runCli(
               interactive,
               prompts,
               reporter,
+              theme,
             );
           const shouldInstall = await confirmHFInstall(
             repo,
@@ -713,9 +996,13 @@ export async function runCli(
 
           if (!shouldInstall) {
             if (selected.trackedModel) {
-              stdout(`Already added ${selected.trackedModel.name}`);
+              stdout(
+                `${theme.accent("Already added")} ${theme.model(selected.trackedModel.name)}`,
+              );
               stdout("");
-              stdout(`Path: ${selected.trackedModel.entryPath}`);
+              stdout(
+                `${theme.label("Path:")} ${selected.trackedModel.entryPath}`,
+              );
               return;
             }
           }
@@ -726,15 +1013,15 @@ export async function runCli(
             { reporter, streamSink },
           );
           stdout(
-            `${result.status === "existing" ? "Already added" : "Added"} ${result.model.name}`,
+            `${result.status === "existing" ? theme.accent("Already added") : theme.success("Added")} ${theme.model(result.model.name)}`,
           );
           stdout("");
-          stdout(`Path: ${result.model.entryPath}`);
+          stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
           return;
         }
 
         if (value !== undefined) {
-          throw new ManagerError("Usage: vmr add <path>", {
+          throw new ManagerError("Usage: umr add <path>", {
             code: "unexpected-add-argument",
             exitCode: 2,
           });
@@ -746,10 +1033,10 @@ export async function runCli(
           { reporter, streamSink },
         );
         stdout(
-          `${result.status === "existing" ? "Already added" : "Added"} ${result.model.name}`,
+          `${result.status === "existing" ? theme.accent("Already added") : theme.success("Added")} ${theme.model(result.model.name)}`,
         );
         stdout("");
-        stdout(`Path: ${result.model.entryPath}`);
+        stdout(`${theme.label("Path:")} ${result.model.entryPath}`);
       },
     );
 
@@ -757,7 +1044,7 @@ export async function runCli(
     .command("list")
     .description("List tracked models")
     .action(async () => {
-      printList(await getManager().listModels(), stdout);
+      printList(await getManager().listModels(), stdout, theme);
     });
 
   program
@@ -772,12 +1059,26 @@ export async function runCli(
         return;
       }
 
-      stdout(model.name);
-      stdout(`  File      ${model.entryFilename}`);
-      stdout(`  Path      ${model.entryPath}`);
-      stdout(`  Size      ${humanizeBytes(model.totalSizeBytes)}`);
-      stdout(`  Source    ${formatSource(model)}`);
-      stdout(`  Targets   ${formatTargets(model)}`);
+      const source = describeSource(model);
+      stdout(theme.model(model.name));
+      stdout(formatDetailLine(theme, "File", model.entryFilename));
+      stdout(
+        formatDetailLine(theme, "Size", humanizeBytes(model.totalSizeBytes)),
+      );
+      stdout(
+        formatDetailLine(theme, "Source", source.label, {
+          valueColor: "accent",
+        }),
+      );
+      if (source.repo) {
+        stdout(formatDetailLine(theme, "Repo", source.repo));
+      }
+      stdout(
+        formatDetailLine(theme, "Targets", formatTargets(model), {
+          valueColor: formatTargets(model) === "none" ? "dim" : "plain",
+        }),
+      );
+      stdout(formatDetailLine(theme, "Path", model.entryPath));
     });
 
   program
@@ -792,7 +1093,9 @@ export async function runCli(
         reporter,
         streamSink,
       });
-      stdout(`Linked ${model.name} to ${formatClientName(target)}`);
+      stdout(
+        `${theme.success("Linked")} ${theme.model(model.name)} to ${theme.accent(formatClientName(target))}`,
+      );
     });
 
   program
@@ -804,7 +1107,9 @@ export async function runCli(
       const registry = getManager();
       const model = registry.getModel(selector);
       await registry.unlink(target, selector, { reporter, streamSink });
-      stdout(`Unlinked ${model.name} from ${formatClientName(target)}`);
+      stdout(
+        `${theme.success("Unlinked")} ${theme.model(model.name)} from ${theme.accent(formatClientName(target))}`,
+      );
     });
 
   program
@@ -815,7 +1120,7 @@ export async function runCli(
       const registry = getManager();
       const model = registry.getModel(selector);
       await registry.remove(selector, { reporter, streamSink });
-      stdout(`Removed ${model.name}`);
+      stdout(`${theme.success("Removed")} ${theme.model(model.name)}`);
     });
 
   program
@@ -827,23 +1132,15 @@ export async function runCli(
         fix: commandOptions.fix,
         reporter,
       });
-      printCheck(result, stdout);
+      printCheck(result, stdout, theme);
       if (result.issues.length > 0) {
-        throw new ManagerError("check completed with issues", {
-          code: "check-issues",
-          exitCode: 3,
-        });
+        exitCode = 3;
       }
     });
 
   try {
-    if (argv.length === 0) {
-      program.outputHelp();
-      return 0;
-    }
-
     await program.parseAsync(argv, { from: "user" });
-    return 0;
+    return exitCode;
   } catch (error) {
     stdoutRaw.flush();
     stderrRaw.flush();
@@ -853,7 +1150,7 @@ export async function runCli(
     }
 
     const managerError = asManagerError(error);
-    stderr(managerError.message);
+    stderr(`${theme.error("error:")} ${managerError.message}`);
     return managerError.exitCode;
   } finally {
     stdoutRaw.flush();

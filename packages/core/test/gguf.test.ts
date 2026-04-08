@@ -8,7 +8,7 @@ import { parseGGUF } from "../src/gguf";
 import { createTestGGUF } from "./helpers/gguf";
 
 test("parseGGUF reads metadata", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-gguf-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-gguf-"));
   const filePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(filePath, {
     "general.name": "Tiny Test Model",

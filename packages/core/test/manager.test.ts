@@ -8,7 +8,7 @@ import {
   RegistrarAdapterRegistry,
   SourceAdapterRegistry,
 } from "../src/adapters";
-import { VirtualModelRegistry } from "../src/manager";
+import { UnifiedModelRegistry } from "../src/manager";
 import { resolveDataPaths } from "../src/paths";
 import { PathSourceAdapter } from "../src/sources/path-source";
 import { createTestGGUF } from "./helpers/gguf";
@@ -19,35 +19,35 @@ function createVMR(root: string) {
 
   const registrarAdapters = new RegistrarAdapterRegistry();
 
-  return new VirtualModelRegistry({
-    dataPaths: resolveDataPaths({ VMR_HOME: root }),
+  return new UnifiedModelRegistry({
+    dataPaths: resolveDataPaths({ UMR_HOME: root }),
     sourceAdapters,
     registrarAdapters,
   });
 }
 
 test("add path copies into managed model root and survives source move", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-manager-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-manager-"));
   const sourceDir = path.join(dir, "source");
   await mkdir(sourceDir, { recursive: true });
   const sourcePath = path.join(sourceDir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
-  const vmr = createVMR(path.join(dir, "home"));
-  const added = await vmr.addSource("path", { path: sourcePath });
+  const umr = createVMR(path.join(dir, "home"));
+  const added = await umr.addSource("path", { path: sourcePath });
 
   expect(added.model.entryPath).not.toBe(sourcePath);
   expect(added.model.rootPath).toContain(path.join("home", "models"));
   await rename(sourcePath, path.join(sourceDir, "moved.gguf"));
 
-  const model = vmr.getModel(added.model.ref);
+  const model = umr.getModel(added.model.ref);
   expect(model.entryPath).toBe(added.model.entryPath);
   expect(await Bun.file(model.entryPath).text()).toContain("GGUF");
-  expect(vmr.getModel(added.model.name).ref).toBe(added.model.ref);
+  expect(umr.getModel(added.model.name).ref).toBe(added.model.ref);
 });
 
 test("generic adapters plug into add/register/remove flow for multi-member models", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-generic-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-generic-"));
   const entryPath = path.join(dir, "fake.gguf");
   const auxPath = path.join(dir, "config.json");
   await createTestGGUF(entryPath);
@@ -81,30 +81,30 @@ test("generic adapters plug into add/register/remove flow for multi-member model
     check: async () => ({ ok: true, issues: [] }),
   });
 
-  const vmr = new VirtualModelRegistry({
+  const umr = new UnifiedModelRegistry({
     dataPaths: resolveDataPaths({
-      VMR_HOME: path.join(dir, "home"),
+      UMR_HOME: path.join(dir, "home"),
     }),
     sourceAdapters,
     registrarAdapters,
   });
 
-  const added = await vmr.addSource("memory", {});
+  const added = await umr.addSource("memory", {});
   expect(added.model.manifest).toHaveLength(2);
   expect(
     await Bun.file(
       path.join(added.model.rootPath, "config", "config.json"),
     ).text(),
   ).toBe('{"hello":"world"}');
-  const registration = await vmr.register("fake", added.model.ref);
+  const registration = await umr.link("fake", added.model.ref);
   expect(registration.clientRef).toContain(added.model.ref);
-  await vmr.unregister("fake", added.model.ref);
-  await vmr.remove(added.model.ref);
-  expect(await vmr.listModels()).toHaveLength(0);
+  await umr.unlink("fake", added.model.ref);
+  await umr.remove(added.model.ref);
+  expect(await umr.listModels()).toHaveLength(0);
 });
 
 test("model names are made unique when the base name collides", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-name-collision-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-name-collision-"));
   const sourceDir = path.join(dir, "source");
   await mkdir(sourceDir, { recursive: true });
   const firstSourcePath = path.join(sourceDir, "first-q4.gguf");
@@ -112,12 +112,12 @@ test("model names are made unique when the base name collides", async () => {
   await createTestGGUF(firstSourcePath, { "general.name": "Active" });
   await createTestGGUF(secondSourcePath, { "general.name": "Active" });
 
-  const vmr = createVMR(path.join(dir, "home"));
-  const first = await vmr.addSource("path", { path: firstSourcePath });
-  const second = await vmr.addSource("path", { path: secondSourcePath });
+  const umr = createVMR(path.join(dir, "home"));
+  const first = await umr.addSource("path", { path: firstSourcePath });
+  const second = await umr.addSource("path", { path: secondSourcePath });
 
   expect(first.model.name).toBe("active");
   expect(second.model.name).toBe("active-2");
-  expect(vmr.getModel("active").entryPath).toBe(first.model.entryPath);
-  expect(vmr.getModel("active-2").entryPath).toBe(second.model.entryPath);
+  expect(umr.getModel("active").entryPath).toBe(first.model.entryPath);
+  expect(umr.getModel("active-2").entryPath).toBe(second.model.entryPath);
 });

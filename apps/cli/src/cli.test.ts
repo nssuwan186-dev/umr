@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { CheckResult } from "@vmr/core";
+import type { CheckResult } from "@umr/core";
 
 import { runCli } from "./cli";
 
@@ -112,26 +112,30 @@ function createFakeManager(options?: {
       ],
     getModel: (_selector: string) => ({
       ...model,
-      sources: [
-        {
-          id: "1",
-          modelId: "1",
-          kind: "path",
-          payload: { originalPath: "/tmp/source.gguf" },
-          createdAt: 0,
-        },
-      ],
-      registrations: [
-        {
-          id: "2",
-          modelId: "1",
-          client: "lmstudio",
-          clientRef: "/tmp/models/tiny.gguf",
-          state: {},
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
+      sources: options?.model
+        ? model.sources
+        : [
+            {
+              id: "1",
+              modelId: "1",
+              kind: "path",
+              payload: { originalPath: "/tmp/source.gguf" },
+              createdAt: 0,
+            },
+          ],
+      registrations: options?.model
+        ? model.registrations
+        : [
+            {
+              id: "2",
+              modelId: "1",
+              client: "lmstudio",
+              clientRef: "/tmp/models/tiny.gguf",
+              state: {},
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
     }),
     register: async (client: string, ref: string) => ({
       clientRef: `${client}:${ref}`,
@@ -172,26 +176,37 @@ test("root help uses custom text and does not initialize the manager", async () 
 
   expect(code).toBe(0);
   expect(createManagerCalls).toBe(0);
-  expect(stdoutRaw.join("")).toBe(`Virtual Model Registry
+  expect(
+    stdoutRaw.join(""),
+  ).toBe(`UMR is the unified model registry for your local AI apps. (v0.1.0)
 
-Usage:
-  vmr <command> [...flags]
+Usage: umr <command> [...flags] [...args]
 
 Commands:
-  add <path>                  Add a local model
-  add hf <repo>               Add a model from Hugging Face
-  list                        List tracked models
-  show <model>                Show model details
-  link <target> <model>       Link a model to a target app
-  unlink <target> <model>     Remove a model link from a target app
-  remove <model>              Remove a model from VMR
-  check                       Check VMR state and target links
+  add        <source>          Add a model to UMR
+             hf <repo>         Add a model from Hugging Face
+             <path>            Add a local model
+  link       <target> <model>  Link a model to a target app
+  unlink     <target> <model>  Remove a model link from a target app
+  list                         List tracked models
+  show       <model>           Show model details
+  remove     <model>           Remove a model from UMR
+  check                        Check UMR state and target links
+  <command>  --help            Print help text for command
+
+Sources:
+  <path>  Local file or directory
+  hf      Hugging Face repo
+
+Targets:
+  lmstudio  LM Studio
+  ollama    Ollama
+  jan       Jan
 
 Flags:
-  -v, --verbose               Show detailed progress
-  -h, --help                  Print help
-
-Use \`vmr <command> --help\` for more information about a command.
+  -v, --verbose  Show detailed progress
+  -h, --help     Print help
+  --version      Print version
 `);
 });
 
@@ -212,17 +227,20 @@ test("add help uses custom text and does not initialize the manager", async () =
 
   expect(code).toBe(0);
   expect(createManagerCalls).toBe(0);
-  expect(stdoutRaw.join("")).toBe(`Usage:
-  vmr add <path>
-  vmr add hf <repo> [--file <name>] [--revision <rev>] [--yes]
+  expect(stdoutRaw.join("")).toBe(`Usage: umr add <path>
+       umr add hf <repo> [--file <name>] [--revision <rev>] [--yes]
 
 Add a model from a local path or Hugging Face.
 
+Sources:
+  <path>  Local file or directory
+  hf      Hugging Face repo
+
 Options:
-  --file <name>               Choose a GGUF file from the repo
-  --revision <rev>            Resolve a specific branch, tag, or commit
-  -y, --yes                   Skip download confirmation
-  -h, --help                  Print help
+  --file <name>     Choose a GGUF file from the repo
+  --revision <rev>  Resolve a branch, tag, or commit
+  -y, --yes         Skip download confirmation
+  -h, --help        Print help
 `);
 });
 
@@ -236,8 +254,8 @@ test("list prints a modern table with humanized sizes", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME        SIZE      TARGETS   STATUS",
-    "tiny-model  123 B     lmstudio  ok",
+    "NAME        SIZE   TARGETS    STATUS",
+    "tiny-model  123 B  LM Studio  ok",
   ]);
 });
 
@@ -253,10 +271,10 @@ test("show prints a compact detail block", async () => {
   expect(lines).toEqual([
     "tiny-model",
     "  File      tiny.gguf",
-    "  Path      /tmp/model-root/tiny.gguf",
     "  Size      123 B",
-    "  Source    local path",
-    "  Targets   lmstudio",
+    "  Source    Local path",
+    "  Targets   LM Studio",
+    "  Path      /tmp/model-root/tiny.gguf",
   ]);
 });
 
@@ -270,6 +288,39 @@ test("show --path prints only the model entry path", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual(["/tmp/model-root/tiny.gguf"]);
+});
+
+test("show makes Hugging Face provenance explicit", async () => {
+  const lines: string[] = [];
+  const code = await runCli(["show", "tiny-model"], {
+    manager: createFakeManager({
+      model: createModel({
+        sources: [
+          {
+            id: "1",
+            modelId: "1",
+            kind: "hf",
+            payload: { repo: "ggml-org/gemma-4-E2B-it-GGUF" },
+            createdAt: 0,
+          },
+        ],
+        registrations: [],
+      }),
+    }) as never,
+    stdout: (line) => lines.push(line),
+    stderr: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(lines).toEqual([
+    "tiny-model",
+    "  File      tiny.gguf",
+    "  Size      123 B",
+    "  Source    Hugging Face",
+    "  Repo      ggml-org/gemma-4-E2B-it-GGUF",
+    "  Targets   none",
+    "  Path      /tmp/model-root/tiny.gguf",
+  ]);
 });
 
 test("add local path stays quiet by default while keeping final output on stdout", async () => {
@@ -423,9 +474,10 @@ test("add hf without --file fails in non-interactive mode and lists files", asyn
   expect(code).toBe(2);
   expect(
     stderrLines.at(-1),
-  ).toBe(`Multiple GGUF files found in repo/name; rerun with --file explicitly:
-  tiny-q4.gguf                               Download Required
-  tiny-q8.gguf                               Download Required`);
+  ).toBe(`error: Multiple GGUF files found in repo/name.
+Use --file to choose one:
+  tiny-q4.gguf  Download Required
+  tiny-q8.gguf  Download Required`);
 });
 
 test("add hf without --yes fails in non-interactive mode", async () => {
@@ -443,7 +495,9 @@ test("add hf without --yes fails in non-interactive mode", async () => {
   );
 
   expect(code).toBe(2);
-  expect(stderrLines.at(-1)).toContain("rerun with --yes");
+  expect(stderrLines.at(-1)).toContain(
+    "error: Hugging Face downloads require confirmation",
+  );
 });
 
 test("existing tracked hf source skips confirmation and add", async () => {
@@ -560,7 +614,7 @@ test("hf chooser annotates tracked and cached options", async () => {
     {
       value: "tiny-q4.gguf",
       label: "tiny-q4.gguf",
-      hint: "Already Added to VMR",
+      hint: "Already Added to UMR",
     },
     {
       value: "tiny-q8.gguf",
@@ -683,14 +737,14 @@ test("check groups issues and suggests safe repairs when available", async () =>
     "Checked 3 models. Found 2 issues. 1 can be fixed automatically.",
     "",
     "tiny-test-model",
-    "  Missing model file. Re-add the model or remove it from VMR.",
+    "  Missing model file. Re-add the model or remove it from UMR.",
     "",
     "zephyr-smol-llama-100m-sft-full-q2-k (Fixable)",
     "  LM Studio link is stale.",
     "",
-    "Run `vmr check --fix` to apply safe repairs.",
+    "Run `umr check --fix` to apply safe repairs.",
   ]);
-  expect(stderrLines).toEqual(["check completed with issues"]);
+  expect(stderrLines).toEqual([]);
 });
 
 test("check --fix shows fixed repairs and remaining issues", async () => {
@@ -733,9 +787,9 @@ test("check --fix shows fixed repairs and remaining issues", async () => {
     "    Removed stale LM Studio link.",
     "",
     "tiny-test-model",
-    "  Missing model file. Re-add the model or remove it from VMR.",
+    "  Missing model file. Re-add the model or remove it from UMR.",
   ]);
-  expect(stderrLines).toEqual(["check completed with issues"]);
+  expect(stderrLines).toEqual([]);
 });
 
 test("missing command args surface a clean commander error", async () => {
@@ -750,4 +804,18 @@ test("missing command args surface a clean commander error", async () => {
 
   expect(code).toBe(1);
   expect(stderrRaw.join("")).toContain("missing required argument 'model'");
+});
+
+test("color output highlights key entities", async () => {
+  const lines: string[] = [];
+  const code = await runCli(["show", "tiny-model"], {
+    color: true,
+    manager: createFakeManager() as never,
+    stdout: (line) => lines.push(line),
+    stderr: () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(lines[0]).toContain("\u001b[");
+  expect(lines[0]).toContain("tiny-model");
 });

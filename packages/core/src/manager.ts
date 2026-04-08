@@ -46,7 +46,7 @@ export interface AddModelResult {
   status: "tracked" | "existing";
 }
 
-export interface VirtualModelRegistryOptions {
+export interface UnifiedModelRegistryOptions {
   dataPaths: DataPaths;
   registry?: Registry;
   store?: ModelStore;
@@ -100,13 +100,13 @@ function formatTargetLabel(target: string): string {
   }
 }
 
-export class VirtualModelRegistry {
+export class UnifiedModelRegistry {
   readonly registry: Registry;
   readonly store: ModelStore;
   readonly sourceAdapters: SourceAdapterRegistry;
   readonly registrarAdapters: RegistrarAdapterRegistry;
 
-  constructor(private readonly options: VirtualModelRegistryOptions) {
+  constructor(private readonly options: UnifiedModelRegistryOptions) {
     this.registry = options.registry ?? new Registry(options.dataPaths);
     this.store = options.store ?? new ModelStore(options.dataPaths);
     this.sourceAdapters = options.sourceAdapters ?? new SourceAdapterRegistry();
@@ -307,14 +307,6 @@ export class VirtualModelRegistry {
     return registration;
   }
 
-  async register(
-    client: string,
-    selector: string,
-    context?: OperationContext,
-  ): Promise<RegistrationRecord> {
-    return this.link(client, selector, context);
-  }
-
   async unlink(
     client: string,
     selector: string,
@@ -326,7 +318,7 @@ export class VirtualModelRegistry {
     const registration = this.registry.getRegistration(model.id, client);
     if (!registration) {
       throw new ManagerError(`Model ${selector} is not linked to ${client}`, {
-        code: "missing-registration",
+        code: "missing-link",
         exitCode: 2,
       });
     }
@@ -343,14 +335,6 @@ export class VirtualModelRegistry {
     );
   }
 
-  async unregister(
-    client: string,
-    selector: string,
-    context?: OperationContext,
-  ): Promise<void> {
-    return this.unlink(client, selector, context);
-  }
-
   async remove(selector: string, context?: OperationContext): Promise<void> {
     await emitInfo(context?.reporter, `Resolving model ${selector}`);
     const model = this.getModel(selector);
@@ -358,7 +342,7 @@ export class VirtualModelRegistry {
       throw new ManagerError(
         `Cannot remove ${selector} while target links exist`,
         {
-          code: "model-still-registered",
+          code: "model-still-linked",
           exitCode: 2,
         },
       );

@@ -1,5 +1,5 @@
 {
-  "name": "@vmr/core",
+  "name": "@umr/core",
   "private": true,
   "type": "module",
   "exports": {

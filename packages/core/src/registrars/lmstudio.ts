@@ -75,7 +75,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
   }
 
   private resolveModelsDir(): string {
-    const override = this.env.VMR_LMSTUDIO_MODELS_DIR?.trim();
+    const override = this.env.UMR_LMSTUDIO_MODELS_DIR?.trim();
     if (override) {
       return path.resolve(override);
     }
@@ -93,7 +93,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     }
 
     throw new ManagerError(
-      "Unable to locate LM Studio models directory; set VMR_LMSTUDIO_MODELS_DIR",
+      "Unable to locate LM Studio models directory; set UMR_LMSTUDIO_MODELS_DIR",
       {
         code: "lmstudio-models-dir",
         exitCode: 2,
@@ -164,8 +164,8 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
   private getUserRepoCandidates(model: ModelDetails): string[] {
     const base = this.deriveBaseRepoName(model);
     return [
-      path.posix.join("vmr", base),
-      path.posix.join("vmr", `${base}-${model.ref.slice(2, 10)}`),
+      path.posix.join("umr", base),
+      path.posix.join("umr", `${base}-${model.ref.slice(2, 10)}`),
     ];
   }
 
@@ -184,7 +184,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     if (
       typeof userRepo !== "string" ||
       typeof targetPath !== "string" ||
-      !userRepo.startsWith("vmr/")
+      !userRepo.startsWith("umr/")
     ) {
       return null;
     }
@@ -227,7 +227,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     }
 
     const fallbackRepo = path.posix.join(
-      "vmr",
+      "umr",
       `${this.deriveBaseRepoName(model)}-${model.ref}`,
     );
     return {
@@ -347,7 +347,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     );
     await removeFileIfExists(targetPath);
     const modelsDir = this.resolveModelsDir();
-    await removeEmptyParents(targetPath, path.join(modelsDir, "vmr"));
+    await removeEmptyParents(targetPath, path.join(modelsDir, "umr"));
   }
 
   async check(

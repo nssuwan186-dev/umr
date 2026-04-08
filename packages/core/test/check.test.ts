@@ -8,13 +8,13 @@ import {
   RegistrarAdapterRegistry,
   SourceAdapterRegistry,
 } from "../src/adapters";
-import { VirtualModelRegistry } from "../src/manager";
+import { UnifiedModelRegistry } from "../src/manager";
 import { resolveDataPaths } from "../src/paths";
 import { PathSourceAdapter } from "../src/sources/path-source";
 import { createTestGGUF } from "./helpers/gguf";
 
 test("check --fix clears stale registrations, temp files, and orphaned model roots", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-check-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-check-"));
   const sourcePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
@@ -32,16 +32,16 @@ test("check --fix clears stale registrations, temp files, and orphaned model roo
   });
 
   const dataPaths = resolveDataPaths({
-    VMR_HOME: path.join(dir, "home"),
+    UMR_HOME: path.join(dir, "home"),
   });
-  const vmr = new VirtualModelRegistry({
+  const umr = new UnifiedModelRegistry({
     dataPaths,
     sourceAdapters,
     registrarAdapters,
   });
 
-  const added = await vmr.addSource("path", { path: sourcePath });
-  await vmr.register("fake", added.model.ref);
+  const added = await umr.addSource("path", { path: sourcePath });
+  await umr.link("fake", added.model.ref);
   await mkdir(path.join(dataPaths.adaptersTmpDir, "ollama"), {
     recursive: true,
   });
@@ -58,9 +58,9 @@ test("check --fix clears stale registrations, temp files, and orphaned model roo
   await mkdir(orphanRoot, { recursive: true });
   await Bun.write(path.join(orphanRoot, "orphan.gguf"), "GGUF");
 
-  const result = await vmr.check({ fix: true });
+  const result = await umr.check({ fix: true });
   expect(result.fixed).toBeTrue();
-  expect(vmr.getModel(added.model.ref).registrations).toHaveLength(0);
+  expect(umr.getModel(added.model.ref).registrations).toHaveLength(0);
   expect(await Bun.file(stalePath).exists()).toBeFalse();
   expect(await Bun.file(orphanRoot).exists()).toBeFalse();
 });

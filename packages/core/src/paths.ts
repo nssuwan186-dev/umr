@@ -13,12 +13,12 @@ export interface DataPaths {
 export function resolveDataRoot(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const override = env.VMR_HOME?.trim();
+  const override = env.UMR_HOME?.trim();
   if (override) {
     return path.resolve(override);
   }
 
-  return path.join(homedir(), ".vmr");
+  return path.join(homedir(), ".umr");
 }
 
 export function resolveDataPaths(

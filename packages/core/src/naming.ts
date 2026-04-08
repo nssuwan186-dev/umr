@@ -71,7 +71,7 @@ export function reserveUniqueModelName(
 
 export function deriveOllamaName(modelName: string, ref: string): string {
   const sanitized = slugify(modelName) || "model";
-  return `vmr-${sanitized}-${ref.slice(2, 10)}`;
+  return `umr-${sanitized}-${ref.slice(2, 10)}`;
 }
 
 export function deriveContentDigest(manifest: ModelManifestMember[]): string {

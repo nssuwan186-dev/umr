@@ -8,7 +8,7 @@ import {
   RegistrarAdapterRegistry,
   SourceAdapterRegistry,
 } from "../src/adapters";
-import { VirtualModelRegistry } from "../src/manager";
+import { UnifiedModelRegistry } from "../src/manager";
 import { resolveDataPaths } from "../src/paths";
 import { LMStudioRegistrarAdapter } from "../src/registrars/lmstudio";
 import type { CommandResult, CommandRunner } from "../src/shell";
@@ -48,21 +48,21 @@ function createVMR(
   dir: string,
   modelsDir: string,
   runner: CommandRunner,
-): VirtualModelRegistry {
+): UnifiedModelRegistry {
   const dataPaths = resolveDataPaths({
-    VMR_HOME: path.join(dir, "home"),
+    UMR_HOME: path.join(dir, "home"),
   });
   const sourceAdapters = new SourceAdapterRegistry();
   sourceAdapters.register(new PathSourceAdapter());
   const registrarAdapters = new RegistrarAdapterRegistry();
   registrarAdapters.register(
     new LMStudioRegistrarAdapter(runner, dataPaths, {
-      VMR_LMSTUDIO_MODELS_DIR: modelsDir,
+      UMR_LMSTUDIO_MODELS_DIR: modelsDir,
       HOME: dir,
     }),
   );
 
-  return new VirtualModelRegistry({
+  return new UnifiedModelRegistry({
     dataPaths,
     sourceAdapters,
     registrarAdapters,
@@ -70,62 +70,62 @@ function createVMR(
 }
 
 test("lmstudio register and unregister manage a deterministic target path", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-lms-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
   const sourcePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
-  const vmr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
-  const added = await vmr.addSource("path", { path: sourcePath });
-  const registration = await vmr.register("lmstudio", added.model.ref);
+  const umr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
+  const added = await umr.addSource("path", { path: sourcePath });
+  const registration = await umr.link("lmstudio", added.model.ref);
   expect(String(registration.state.targetPath)).toContain(
-    path.join("vmr", "tiny"),
+    path.join("umr", "tiny"),
   );
   expect(
     await Bun.file(String(registration.state.targetPath)).exists(),
   ).toBeTrue();
 
-  await vmr.unregister("lmstudio", added.model.ref);
+  await umr.unlink("lmstudio", added.model.ref);
   expect(
     await Bun.file(String(registration.state.targetPath)).exists(),
   ).toBeFalse();
 });
 
 test("lmstudio register prefers an HF-derived managed repo path", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-lms-hf-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-hf-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
   const sourcePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
-  const vmr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
-  const added = await vmr.addSource("path", { path: sourcePath });
-  vmr.registry.addSource(added.model.id, "hf", {
+  const umr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
+  const added = await umr.addSource("path", { path: sourcePath });
+  umr.registry.addSource(added.model.id, "hf", {
     repo: "afrideva/zephyr-smol_llama-100m-sft-full-GGUF",
     revision: "abc123",
     file: "zephyr-smol_llama-100m-sft-full.q2_k.gguf",
   });
 
-  const registration = await vmr.register("lmstudio", added.model.ref);
+  const registration = await umr.link("lmstudio", added.model.ref);
   expect(String(registration.state.targetPath)).toContain(
-    path.join("vmr", "zephyr-smol_llama-100m-sft-full-GGUF"),
+    path.join("umr", "zephyr-smol_llama-100m-sft-full-GGUF"),
   );
 });
 
 test("lmstudio register refreshes an existing managed target", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-lms-refresh-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-refresh-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
   const sourcePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
-  const vmr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
-  const added = await vmr.addSource("path", { path: sourcePath });
-  const first = await vmr.register("lmstudio", added.model.ref);
+  const umr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
+  const added = await umr.addSource("path", { path: sourcePath });
+  const first = await umr.link("lmstudio", added.model.ref);
   await Bun.write(String(first.state.targetPath), "corrupt");
 
-  const second = await vmr.register("lmstudio", added.model.ref);
+  const second = await umr.link("lmstudio", added.model.ref);
   expect(second.clientRef).toBe(first.clientRef);
   expect(await Bun.file(String(second.state.targetPath)).text()).toContain(
     "GGUF",
@@ -133,20 +133,20 @@ test("lmstudio register refreshes an existing managed target", async () => {
 });
 
 test("lmstudio unregister tolerates manual removal of the managed path", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-lms-unreg-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-unreg-"));
   const modelsDir = path.join(dir, "models");
   await mkdir(modelsDir, { recursive: true });
   const sourcePath = path.join(dir, "tiny.gguf");
   await createTestGGUF(sourcePath);
 
-  const vmr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
-  const added = await vmr.addSource("path", { path: sourcePath });
-  const registration = await vmr.register("lmstudio", added.model.ref);
+  const umr = createVMR(dir, modelsDir, createLmsRunner(modelsDir));
+  const added = await umr.addSource("path", { path: sourcePath });
+  const registration = await umr.link("lmstudio", added.model.ref);
   await rm(path.dirname(String(registration.state.targetPath)), {
     recursive: true,
     force: true,
   });
 
-  await vmr.unregister("lmstudio", added.model.ref);
-  expect(vmr.getModel(added.model.ref).registrations).toHaveLength(0);
+  await umr.unlink("lmstudio", added.model.ref);
+  expect(umr.getModel(added.model.ref).registrations).toHaveLength(0);
 });

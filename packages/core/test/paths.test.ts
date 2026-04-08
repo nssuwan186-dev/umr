@@ -3,15 +3,15 @@ import { expect, test } from "bun:test";
 import { resolveDataPaths, resolveDataRoot } from "../src/paths";
 
 test("resolveDataRoot uses override when set", () => {
-  expect(resolveDataRoot({ VMR_HOME: "/tmp/custom-vmr" })).toBe(
-    "/tmp/custom-vmr",
+  expect(resolveDataRoot({ UMR_HOME: "/tmp/custom-umr" })).toBe(
+    "/tmp/custom-umr",
   );
 });
 
 test("resolveDataPaths builds expected layout", () => {
   const paths = resolveDataPaths({
-    VMR_HOME: "/tmp/custom-vmr",
+    UMR_HOME: "/tmp/custom-umr",
   });
-  expect(paths.modelsDir).toBe("/tmp/custom-vmr/models");
-  expect(paths.adaptersTmpDir).toBe("/tmp/custom-vmr/tmp/adapters");
+  expect(paths.modelsDir).toBe("/tmp/custom-umr/models");
+  expect(paths.adaptersTmpDir).toBe("/tmp/custom-umr/tmp/adapters");
 });

@@ -4,17 +4,17 @@ import path from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { createDefaultVMR } from "../src/defaults";
+import { createDefaultUMR } from "../src/defaults";
 
-const shouldRun = process.env.VMR_RUN_E2E === "1";
+const shouldRun = process.env.UMR_RUN_E2E === "1";
 
 test.if(shouldRun)("e2e add hf with a small qwen gguf", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "vmr-e2e-"));
-  const vmr = createDefaultVMR({
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-e2e-"));
+  const umr = createDefaultUMR({
     ...process.env,
-    VMR_HOME: path.join(dir, "home"),
+    UMR_HOME: path.join(dir, "home"),
   });
-  const added = await vmr.addSource("hf", {
+  const added = await umr.addSource("hf", {
     repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
     file: "qwen2.5-0.5b-instruct-q2_k.gguf",
   });

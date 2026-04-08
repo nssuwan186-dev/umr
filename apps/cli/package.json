@@ -1,8 +1,9 @@
 {
-  "name": "vmr-ai",
+  "name": "umr-ai",
+  "version": "0.1.0",
   "type": "module",
   "bin": {
-    "vmr": "./src/index.ts"
+    "umr": "./src/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -12,8 +13,9 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
-    "@vmr/core": "workspace:*",
+    "@umr/core": "workspace:*",
     "cli-progress": "^3.12.0",
-    "commander": "^14.0.3"
+    "commander": "^14.0.3",
+    "picocolors": "^1.1.1"
   }
 }

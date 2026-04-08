@@ -179,7 +179,7 @@ print(json.dumps({
       `Fetching ${selectedFile} from the Hugging Face cache`,
     );
     const python = await resolvePythonCommand(this.runner);
-    const tempDir = await mkdtemp(path.join(tmpdir(), "vmr-hf-download-"));
+    const tempDir = await mkdtemp(path.join(tmpdir(), "umr-hf-download-"));
     const outputPath = path.join(tempDir, "result.json");
     let downloadPath: string;
     try {
