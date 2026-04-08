@@ -727,7 +727,7 @@ function printList(
   const totalBytes = rows.reduce((sum, row) => sum + row.totalSizeBytes, 0);
   write("");
   write(
-    `Found ${rows.length} tracked ${rows.length === 1 ? "model" : "models"} for a total of ${humanizeBytes(totalBytes)} on disk.`,
+    `Found ${rows.length} tracked ${rows.length === 1 ? "model" : "models"} (total ${humanizeBytes(totalBytes)} on disk)`,
   );
 }
 
