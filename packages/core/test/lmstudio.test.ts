@@ -171,4 +171,9 @@ test("lmstudio can be linked again after stale cleanup removes the UMR link", as
 
   const second = await umr.link("lmstudio", added.model.ref);
   expect(await Bun.file(String(second.state.targetPath)).exists()).toBeTrue();
+  expect(String(second.state.targetPath)).not.toBe(
+    String(first.state.targetPath),
+  );
+  expect(String(second.state.userRepo)).not.toBe(String(first.state.userRepo));
+  expect(String(second.state.userRepo)).toContain(added.model.ref.slice(2, 10));
 });

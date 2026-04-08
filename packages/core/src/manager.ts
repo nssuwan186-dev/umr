@@ -112,6 +112,25 @@ function formatClientLabel(client: string): string {
   }
 }
 
+function getLMStudioRepoHistorySource(
+  client: string,
+  state: Record<string, JsonValue>,
+): { kind: string; payload: Record<string, JsonValue> } | null {
+  if (client !== "lmstudio") {
+    return null;
+  }
+
+  const userRepo = state.userRepo;
+  if (typeof userRepo !== "string" || !userRepo.startsWith("umr/")) {
+    return null;
+  }
+
+  return {
+    kind: "lmstudio-repo",
+    payload: { userRepo },
+  };
+}
+
 export class UnifiedModelRegistry {
   readonly registry: Registry;
   readonly store: ModelStore;
@@ -336,6 +355,14 @@ export class UnifiedModelRegistry {
       result.clientRef,
       result.state,
     );
+    const historySource = getLMStudioRepoHistorySource(client, result.state);
+    if (historySource) {
+      this.registry.addSource(
+        model.id,
+        historySource.kind,
+        historySource.payload,
+      );
+    }
     await emitSuccess(
       context?.reporter,
       `Linked ${model.name} to ${client} as ${registration.clientRef}`,
@@ -364,6 +391,17 @@ export class UnifiedModelRegistry {
       `Removing ${client} link for ${model.name}`,
     );
     await registrar.unregister(model, registration, context);
+    const historySource = getLMStudioRepoHistorySource(
+      client,
+      registration.state,
+    );
+    if (historySource) {
+      this.registry.addSource(
+        model.id,
+        historySource.kind,
+        historySource.payload,
+      );
+    }
     this.registry.deleteRegistration(model.id, client);
     await emitSuccess(
       context?.reporter,
@@ -488,6 +526,17 @@ export class UnifiedModelRegistry {
         });
         if (!health.ok) {
           if (options?.fix) {
+            const historySource = getLMStudioRepoHistorySource(
+              registration.client,
+              registration.state,
+            );
+            if (historySource) {
+              this.registry.addSource(
+                model.id,
+                historySource.kind,
+                historySource.payload,
+              );
+            }
             this.registry.deleteRegistrationById(registration.id);
             repairs.push({
               ref: model.name,

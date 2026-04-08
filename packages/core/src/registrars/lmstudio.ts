@@ -192,6 +192,42 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     return { userRepo, targetPath };
   }
 
+  private getHistoricalManagedRepos(model: ModelDetails): Set<string> {
+    const repos = new Set<string>();
+
+    for (const source of model.sources) {
+      if (source.kind !== "lmstudio-repo") {
+        continue;
+      }
+
+      const userRepo = source.payload.userRepo;
+      if (typeof userRepo === "string" && userRepo.startsWith("umr/")) {
+        repos.add(userRepo);
+      }
+    }
+
+    return repos;
+  }
+
+  private async chooseFreshManagedRepo(
+    model: ModelDetails,
+    historicalRepos: Set<string>,
+  ): Promise<string> {
+    const base = this.deriveBaseRepoName(model);
+    const stem = `${base}-${model.ref.slice(2, 10)}`;
+
+    let attempt = 1;
+    while (true) {
+      const suffix = attempt === 1 ? stem : `${stem}-${attempt}`;
+      const userRepo = path.posix.join("umr", suffix);
+      const targetPath = this.getTargetPath(userRepo, model);
+      if (!historicalRepos.has(userRepo) && !(await pathExists(targetPath))) {
+        return userRepo;
+      }
+      attempt += 1;
+    }
+  }
+
   private async chooseImportTarget(
     model: ModelDetails,
   ): Promise<{ userRepo: string; targetPath: string }> {
@@ -208,10 +244,14 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
       return existingManagedTarget;
     }
 
+    const historicalRepos = this.getHistoricalManagedRepos(model);
     const candidates = this.getUserRepoCandidates(model);
     for (const userRepo of candidates) {
       const targetPath = this.getTargetPath(userRepo, model);
       if (!(await pathExists(targetPath))) {
+        if (historicalRepos.has(userRepo)) {
+          continue;
+        }
         return { userRepo, targetPath };
       }
 
@@ -226,9 +266,9 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
       }
     }
 
-    const fallbackRepo = path.posix.join(
-      "umr",
-      `${this.deriveBaseRepoName(model)}-${model.ref}`,
+    const fallbackRepo = await this.chooseFreshManagedRepo(
+      model,
+      historicalRepos,
     );
     return {
       userRepo: fallbackRepo,
