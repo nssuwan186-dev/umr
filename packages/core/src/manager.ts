@@ -58,17 +58,25 @@ async function safeCleanup(resolvedSource: ResolvedSource): Promise<void> {
   await resolvedSource.cleanup?.();
 }
 
-async function buildManifest(
-  members: SourceMember[],
-): Promise<{ manifest: ModelManifestMember[]; totalSizeBytes: number }> {
+async function buildManifest(members: SourceMember[]): Promise<{
+  manifest: ModelManifestMember[];
+  totalSizeBytes: number;
+}> {
   const manifest: ModelManifestMember[] = [];
   let totalSizeBytes = 0;
 
   for (const member of members) {
-    const [sha256, sizeBytes] = await Promise.all([
-      sha256File(member.sourcePath),
-      fileSize(member.sourcePath),
-    ]);
+    let sha256 = member.sha256;
+    let sizeBytes = member.sizeBytes;
+
+    if (!sha256 || typeof sizeBytes !== "number") {
+      const computed = await Promise.all([
+        sha256File(member.sourcePath),
+        fileSize(member.sourcePath),
+      ]);
+      [sha256, sizeBytes] = computed;
+    }
+
     manifest.push({
       relPath: member.relPath,
       sha256,
@@ -189,7 +197,15 @@ export class UnifiedModelRegistry {
     const resolved = await adapter.resolve(input, context);
 
     try {
-      await emitInfo(context?.reporter, "Hashing resolved model members");
+      const needsHashing = resolved.members.some(
+        (member) => !member.sha256 || typeof member.sizeBytes !== "number",
+      );
+      await emitInfo(
+        context?.reporter,
+        needsHashing
+          ? "Hashing resolved model members"
+          : "Preparing model manifest",
+      );
       const { manifest, totalSizeBytes } = await buildManifest(
         resolved.members,
       );

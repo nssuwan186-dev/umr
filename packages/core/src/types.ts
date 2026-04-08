@@ -39,6 +39,8 @@ export interface SourceDescriptor {
 export interface SourceMember {
   sourcePath: string;
   relPath: string;
+  sha256?: string;
+  sizeBytes?: number;
 }
 
 export interface ModelManifestMember {

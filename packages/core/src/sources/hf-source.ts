@@ -24,11 +24,16 @@ export interface HFRepoInspection {
   resolvedRevision: string;
   ggufFiles: string[];
   cachedFiles: string[];
+  fileMetadata: Record<string, { sha256?: string; sizeBytes?: number }>;
 }
 
 interface HFModelInfo {
   sha: string;
-  siblings: string[];
+  siblings: Array<{
+    rfilename: string;
+    sha256?: string;
+    sizeBytes?: number;
+  }>;
   cachedSiblings: string[];
 }
 
@@ -103,10 +108,17 @@ import sys
 from huggingface_hub import HfApi, try_to_load_from_cache
 repo = sys.argv[1]
 revision = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] != "__none__" else None
-info = HfApi().model_info(repo, revision=revision)
+info = HfApi().model_info(repo, revision=revision, files_metadata=True)
 print(json.dumps({
   "sha": info.sha,
-  "siblings": [s.rfilename for s in info.siblings or []],
+  "siblings": [
+    {
+      "rfilename": sibling.rfilename,
+      "sha256": getattr(sibling.lfs, "sha256", None),
+      "sizeBytes": sibling.size,
+    }
+    for sibling in info.siblings or []
+  ],
   "cachedSiblings": [
     sibling.rfilename
     for sibling in info.siblings or []
@@ -121,9 +133,10 @@ print(json.dumps({
       [input.repo, input.revision ?? "__none__"],
     );
 
-    const ggufFiles = info.siblings.filter((file) =>
-      file.toLowerCase().endsWith(".gguf"),
+    const ggufSiblings = info.siblings.filter((sibling) =>
+      sibling.rfilename.toLowerCase().endsWith(".gguf"),
     );
+    const ggufFiles = ggufSiblings.map((sibling) => sibling.rfilename);
 
     if (ggufFiles.length === 0) {
       throw new ManagerError(`No GGUF files found in ${input.repo}`, {
@@ -137,6 +150,15 @@ print(json.dumps({
       resolvedRevision: info.sha,
       ggufFiles,
       cachedFiles: info.cachedSiblings,
+      fileMetadata: Object.fromEntries(
+        ggufSiblings.map((sibling) => [
+          sibling.rfilename,
+          {
+            sha256: sibling.sha256,
+            sizeBytes: sibling.sizeBytes,
+          },
+        ]),
+      ),
     };
   }
 
@@ -256,6 +278,8 @@ with open(output_path, "w", encoding="utf-8") as handle:
         {
           sourcePath: downloadPath,
           relPath: selectedFile,
+          sha256: inspection.fileMetadata[selectedFile]?.sha256,
+          sizeBytes: inspection.fileMetadata[selectedFile]?.sizeBytes,
         },
       ],
     };
