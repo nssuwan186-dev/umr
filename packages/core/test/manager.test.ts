@@ -73,15 +73,15 @@ test("add path emits transfer progress while copying into UMR storage", async ()
     },
   );
 
-  expect(
-    events.some((event) => event.startsWith("start:Hashing tiny.gguf:")),
-  ).toBe(true);
-  expect(
-    events.some((event) => event.startsWith("update:Hashing tiny.gguf:")),
-  ).toBe(true);
-  expect(
-    events.some((event) => event.startsWith("finish:Hashing tiny.gguf:")),
-  ).toBe(true);
+  expect(events.some((event) => event.startsWith("start:tiny.gguf:"))).toBe(
+    true,
+  );
+  expect(events.some((event) => event.startsWith("update:tiny.gguf:"))).toBe(
+    true,
+  );
+  expect(events.some((event) => event.startsWith("finish:tiny.gguf:"))).toBe(
+    true,
+  );
   expect(events.some((event) => event.startsWith("start:tiny.gguf:"))).toBe(
     true,
   );

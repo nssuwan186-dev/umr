@@ -76,7 +76,7 @@ async function buildManifest(
       sizeBytes = await fileSize(member.sourcePath);
       sha256 = await sha256File(member.sourcePath, {
         progress: context?.transferProgress,
-        label: `Hashing ${path.basename(member.relPath)}`,
+        label: path.basename(member.relPath),
         totalBytes: sizeBytes,
       });
     }
