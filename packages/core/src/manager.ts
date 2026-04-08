@@ -95,8 +95,8 @@ function describeModelHealth(
   return rootExists && entryExists ? "ok" : "missing";
 }
 
-function formatTargetLabel(target: string): string {
-  switch (target) {
+function formatClientLabel(client: string): string {
+  switch (client) {
     case "lmstudio":
       return "LM Studio";
     case "ollama":
@@ -104,7 +104,7 @@ function formatTargetLabel(target: string): string {
     case "jan":
       return "Jan";
     default:
-      return target;
+      return client;
   }
 }
 
@@ -277,7 +277,13 @@ export class UnifiedModelRegistry {
   }
 
   async listModels(): Promise<
-    Array<ModelRecord & { registrations: string[]; health: "ok" | "missing" }>
+    Array<
+      ModelRecord & {
+        sourceKind: string;
+        registrations: string[];
+        health: "ok" | "missing";
+      }
+    >
   > {
     return Promise.all(
       this.registry.listModels().map(async (model) => {
@@ -285,8 +291,16 @@ export class UnifiedModelRegistry {
           pathExists(model.rootPath),
           pathExists(model.entryPath),
         ]);
+        const sources = this.registry.listSources(model.id);
+        const sourceKinds = sources.map((source) => source.kind);
+        const sourceKind = sourceKinds.includes("hf")
+          ? "hf"
+          : sourceKinds.includes("path")
+            ? "local"
+            : (sourceKinds[0] ?? "unknown");
         return {
           ...model,
+          sourceKind,
           registrations: this.registry
             .listRegistrations(model.id)
             .map((registration: RegistrationRecord) => registration.client),
@@ -461,7 +475,7 @@ export class UnifiedModelRegistry {
       const registrations = this.registry.listRegistrations(model.id);
       for (const registration of registrations) {
         const registrar = this.registrarAdapters.get(registration.client);
-        const targetLabel = formatTargetLabel(registration.client);
+        const clientLabel = formatClientLabel(registration.client);
         const details = this.getModel(model.ref);
         const health = await registrar.check(details, registration, {
           reporter: options?.reporter,
@@ -478,11 +492,11 @@ export class UnifiedModelRegistry {
             this.registry.deleteRegistrationById(registration.id);
             repairs.push({
               ref: model.name,
-              message: `Removed stale ${targetLabel} link.`,
+              message: `Removed stale ${clientLabel} link.`,
             });
             await emitWarning(
               options?.reporter,
-              `Removed stale ${targetLabel} link for ${model.name}`,
+              `Removed stale ${clientLabel} link for ${model.name}`,
             );
           }
         }

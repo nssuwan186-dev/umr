@@ -68,7 +68,7 @@ const SOURCE_ROWS: HelpRow[] = [
   },
 ];
 
-const TARGET_ROWS: HelpRow[] = [
+const CLIENT_ROWS: HelpRow[] = [
   {
     command: "lmstudio",
     usage: "",
@@ -146,7 +146,7 @@ function renderRootHelp(theme: CliTheme): string {
     },
   ];
   const commandWidth = "<command>".length;
-  const usageWidth = "<target> <model>".length;
+  const usageWidth = "<client> <model>".length;
   const renderRow = (input: {
     command?: string;
     commandColor?: "add" | "blue" | "orange" | "plain";
@@ -201,9 +201,9 @@ function renderRootHelp(theme: CliTheme): string {
     renderRow({
       command: "link",
       commandColor: "blue",
-      usage: "<target> <model>",
+      usage: "<client> <model>",
       usageColor: "plain",
-      description: "Link a model to a target app",
+      description: "Link a model to a client app",
     }),
     renderRow({
       usage: "lmstudio <model>",
@@ -221,9 +221,9 @@ function renderRootHelp(theme: CliTheme): string {
     renderRow({
       command: "unlink",
       commandColor: "blue",
-      usage: "<target> <model>",
+      usage: "<client> <model>",
       usageColor: "plain",
-      description: "Remove a model link from a target app",
+      description: "Remove a model link from a client app",
     }),
     "",
     renderRow({
@@ -248,7 +248,7 @@ function renderRootHelp(theme: CliTheme): string {
     renderRow({
       command: "check",
       commandColor: "orange",
-      description: "Check UMR state and target links",
+      description: "Check UMR state and client links",
     }),
     "",
     renderRow({
@@ -349,15 +349,15 @@ function renderLinkHelp(theme: CliTheme, verb: "link" | "unlink"): string {
   return [
     renderSimpleHelp({
       theme,
-      usage: [`umr ${verb} <target> <model>`],
+      usage: [`umr ${verb} <client> <model>`],
       description:
         verb === "link"
-          ? "Link a model to a target app."
-          : "Remove a model link from a target app.",
+          ? "Link a model to a client app."
+          : "Remove a model link from a client app.",
       options: optionRows,
     }),
-    theme.heading("Targets:"),
-    ...formatHelpRows(TARGET_ROWS, theme, {
+    theme.heading("Clients:"),
+    ...formatHelpRows(CLIENT_ROWS, theme, {
       commandStyle: "plain",
       usageStyle: "plain",
     }),
@@ -419,7 +419,7 @@ function renderCheckHelp(theme: CliTheme): string {
   return renderSimpleHelp({
     theme,
     usage: ["umr check [--fix]"],
-    description: "Check UMR state and target links.",
+    description: "Check UMR state and client links.",
     options: [
       {
         command: "--fix",
@@ -477,16 +477,16 @@ function describeSource(model: ModelDetails): {
   };
 }
 
-function formatTargetNames(targets: string[]): string {
-  if (targets.length === 0) {
+function formatClientNames(clients: string[]): string {
+  if (clients.length === 0) {
     return "none";
   }
 
-  return targets.map((target) => formatClientName(target)).join(", ");
+  return clients.map((client) => formatClientName(client)).join(", ");
 }
 
-function formatTargets(model: ModelDetails): string {
-  return formatTargetNames(
+function formatClients(model: ModelDetails): string {
+  return formatClientNames(
     model.registrations.map((registration) => registration.client),
   );
 }
@@ -711,15 +711,23 @@ function printList(
     "NAME".length,
     ...rows.map((row) => row.name.length),
   );
+  const sourceWidth = Math.max(
+    "SOURCE".length,
+    ...rows.map((row) => row.sourceKind.length),
+  );
+  const formatWidth = Math.max(
+    "FORMAT".length,
+    ...rows.map((row) => row.format.length),
+  );
   const sizeWidth = Math.max(
     "SIZE".length,
     ...rows.map((row) => humanizeBytes(row.totalSizeBytes).length),
   );
   const clientWidth = Math.max(
-    "TARGETS".length,
+    "CLIENTS".length,
     ...rows.map((row) =>
       row.registrations.length > 0
-        ? formatTargetNames(row.registrations).length
+        ? formatClientNames(row.registrations).length
         : 1,
     ),
   );
@@ -728,15 +736,15 @@ function printList(
     ...rows.map((row) => row.health.length),
   );
   write(
-    `${theme.heading(theme.dim("NAME".padEnd(nameWidth)))}  ${theme.heading(theme.dim("SIZE".padEnd(sizeWidth)))}  ${theme.heading(theme.dim("TARGETS".padEnd(clientWidth)))}  ${theme.heading(theme.dim("STATUS".padEnd(statusWidth)))}`,
+    `${theme.heading(theme.dim("NAME".padEnd(nameWidth)))}  ${theme.heading(theme.dim("SOURCE".padEnd(sourceWidth)))}  ${theme.heading(theme.dim("FORMAT".padEnd(formatWidth)))}  ${theme.heading(theme.dim("SIZE".padEnd(sizeWidth)))}  ${theme.heading(theme.dim("CLIENTS".padEnd(clientWidth)))}  ${theme.heading(theme.dim("STATUS".padEnd(statusWidth)))}`,
   );
   for (const row of rows) {
     const registrations =
-      row.registrations.length > 0 ? formatTargetNames(row.registrations) : "-";
+      row.registrations.length > 0 ? formatClientNames(row.registrations) : "-";
     const status =
       row.health === "ok" ? theme.success(row.health) : theme.error(row.health);
     write(
-      `${theme.model(row.name.padEnd(nameWidth))}  ${humanizeBytes(row.totalSizeBytes).padEnd(sizeWidth)}  ${registrations === "-" ? theme.dim(registrations.padEnd(clientWidth)) : registrations.padEnd(clientWidth)}  ${status}`,
+      `${theme.model(row.name.padEnd(nameWidth))}  ${row.sourceKind.padEnd(sourceWidth)}  ${row.format.padEnd(formatWidth)}  ${humanizeBytes(row.totalSizeBytes).padEnd(sizeWidth)}  ${registrations === "-" ? theme.dim(registrations.padEnd(clientWidth)) : registrations.padEnd(clientWidth)}  ${status}`,
     );
   }
 
@@ -1368,8 +1376,8 @@ export async function runCli(
         stdout(formatDetailLine(theme, "Repo", source.repo));
       }
       stdout(
-        formatDetailLine(theme, "Targets", formatTargets(model), {
-          valueColor: formatTargets(model) === "none" ? "dim" : "plain",
+        formatDetailLine(theme, "Clients", formatClients(model), {
+          valueColor: formatClients(model) === "none" ? "dim" : "plain",
         }),
       );
       stdout(formatDetailLine(theme, "Path", model.entryPath));
@@ -1377,32 +1385,32 @@ export async function runCli(
 
   program
     .command("link")
-    .description("Link a model to a target app")
-    .argument("<target>", "Target name")
+    .description("Link a model to a client app")
+    .argument("<client>", "Client name")
     .argument("<model>", "Model selector")
-    .action(async (target: string, selector: string) => {
+    .action(async (client: string, selector: string) => {
       const registry = getManager();
       const model = registry.getModel(selector);
-      await registry.link(target, selector, {
+      await registry.link(client, selector, {
         reporter,
         streamSink,
       });
       stdout(
-        `${theme.success("Linked model")} ${theme.model(model.name)} ${theme.success("to")} ${theme.accent(formatClientName(target))}`,
+        `${theme.success("Linked model")} ${theme.model(model.name)} ${theme.success("to")} ${theme.accent(formatClientName(client))}`,
       );
     });
 
   program
     .command("unlink")
-    .description("Remove a model link from a target app")
-    .argument("<target>", "Target name")
+    .description("Remove a model link from a client app")
+    .argument("<client>", "Client name")
     .argument("<model>", "Model selector")
-    .action(async (target: string, selector: string) => {
+    .action(async (client: string, selector: string) => {
       const registry = getManager();
       const model = registry.getModel(selector);
-      await registry.unlink(target, selector, { reporter, streamSink });
+      await registry.unlink(client, selector, { reporter, streamSink });
       stdout(
-        `${theme.success("Unlinked model")} ${theme.model(model.name)} ${theme.success("from")} ${theme.accent(formatClientName(target))}`,
+        `${theme.success("Unlinked model")} ${theme.model(model.name)} ${theme.success("from")} ${theme.accent(formatClientName(client))}`,
       );
     });
 
@@ -1421,7 +1429,7 @@ export async function runCli(
 
   program
     .command("check")
-    .description("Check managed state and optionally repair stale records")
+    .description("Check UMR state and client links")
     .option("--fix", "Apply safe repairs")
     .action(async (commandOptions: { fix?: boolean }) => {
       const result = await getManager().check({

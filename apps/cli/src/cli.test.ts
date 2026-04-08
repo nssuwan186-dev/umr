@@ -45,6 +45,8 @@ function createFakeManager(options?: {
   cachedHFFiles?: string[];
   listRows?: Array<{
     name: string;
+    sourceKind: string;
+    format: "gguf";
     totalSizeBytes: number;
     registrations: string[];
     health: "ok" | "missing";
@@ -114,6 +116,7 @@ function createFakeManager(options?: {
       options?.listRows ?? [
         {
           ...model,
+          sourceKind: "local",
           registrations: ["lmstudio"],
           health: "ok" as const,
         },
@@ -211,17 +214,17 @@ Commands:
              hf <repo>         Add a model from Hugging Face
              <path>            Add a local model
 
-  link       <target> <model>  Link a model to a target app
+  link       <client> <model>  Link a model to a client app
              lmstudio <model>  Link model to LM Studio
              ollama <model>    Link model to Ollama
              jan <model>       Link model to Jan
              --help            See full list
-  unlink     <target> <model>  Remove a model link from a target app
+  unlink     <client> <model>  Remove a model link from a client app
 
   list                         List tracked models
   show       <model>           Show model details
   remove     <model>           Remove a model from UMR
-  check                        Check UMR state and target links
+  check                        Check UMR state and client links
 
   <command>  --help            Print help text for command
 
@@ -283,14 +286,14 @@ test("link help uses custom text and does not initialize the manager", async () 
 
   expect(code).toBe(0);
   expect(createManagerCalls).toBe(0);
-  expect(stdoutRaw.join("")).toBe(`Usage: umr link <target> <model>
+  expect(stdoutRaw.join("")).toBe(`Usage: umr link <client> <model>
 
-Link a model to a target app.
+Link a model to a client app.
 
 Flags:
   -h, --help  Print help
 
-Targets:
+Clients:
   lmstudio  LM Studio
   ollama    Ollama
   jan       Jan
@@ -370,21 +373,23 @@ test("list prints a modern table with humanized sizes", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME        SIZE   TARGETS    STATUS",
-    "tiny-model  123 B  LM Studio  ok",
+    "NAME        SOURCE  FORMAT  SIZE   CLIENTS    STATUS",
+    "tiny-model  local   gguf    123 B  LM Studio  ok",
     "",
     "Found 1 tracked model (total 123 B on disk)",
     "123 B saved with UMR",
   ]);
 });
 
-test("list omits the saved footer when no targets are linked", async () => {
+test("list omits the saved footer when no clients are linked", async () => {
   const lines: string[] = [];
   const code = await runCli(["list"], {
     manager: createFakeManager({
       listRows: [
         {
           name: "tiny-model",
+          sourceKind: "local",
+          format: "gguf",
           totalSizeBytes: 123,
           registrations: [],
           health: "ok",
@@ -397,8 +402,8 @@ test("list omits the saved footer when no targets are linked", async () => {
 
   expect(code).toBe(0);
   expect(lines).toEqual([
-    "NAME        SIZE   TARGETS  STATUS",
-    "tiny-model  123 B  -        ok",
+    "NAME        SOURCE  FORMAT  SIZE   CLIENTS  STATUS",
+    "tiny-model  local   gguf    123 B  -        ok",
     "",
     "Found 1 tracked model (total 123 B on disk)",
   ]);
@@ -418,7 +423,7 @@ test("show prints a compact detail block", async () => {
     "  File      tiny.gguf",
     "  Size      123 B",
     "  Source    Local path",
-    "  Targets   LM Studio",
+    "  Clients   LM Studio",
     "  Path      /tmp/model-root/tiny.gguf",
   ]);
 });
@@ -463,7 +468,7 @@ test("show makes Hugging Face provenance explicit", async () => {
     "  Size      123 B",
     "  Source    Hugging Face",
     "  Repo      ggml-org/gemma-4-E2B-it-GGUF",
-    "  Targets   none",
+    "  Clients   none",
     "  Path      /tmp/model-root/tiny.gguf",
   ]);
 });
@@ -783,7 +788,7 @@ test("add ./hf is treated as a local path, not the hf source keyword", async () 
   expect(manager.calls).toEqual([{ kind: "path", input: { path: "./hf" } }]);
 });
 
-test("link and unlink use clean target-facing wording", async () => {
+test("link and unlink use clean client-facing wording", async () => {
   const stdoutLines: string[] = [];
   const code = await runCli(["link", "lmstudio", "tiny-model"], {
     manager: createFakeManager() as never,
