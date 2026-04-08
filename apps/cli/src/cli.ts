@@ -212,7 +212,7 @@ function renderRootHelp(theme: CliTheme): string {
       usage: "jan <model>",
       description: "Link model to Jan",
     }),
-    `  ${"".padEnd(commandWidth)}  ${theme.dim("To see the full list, run ")}${theme.plain("`umr link ")}${theme.flag("--help")}${theme.plain("`")}`,
+    `  ${"".padEnd(commandWidth)}  ${theme.flag("--help".padEnd(usageWidth))}  ${theme.description("See full list")}`,
     renderRow({
       command: "unlink",
       commandColor: "blue",

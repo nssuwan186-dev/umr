@@ -187,7 +187,7 @@ Commands:
              lmstudio <model>  Link model to LM Studio
              ollama <model>    Link model to Ollama
              jan <model>       Link model to Jan
-             To see the full list, run \`umr link --help\`
+             --help            See full list
   unlink     <target> <model>  Remove a model link from a target app
 
   list                         List tracked models
