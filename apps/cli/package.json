@@ -8,7 +8,7 @@
     "README.md"
   ],
   "bin": {
-    "umr": "./dist/index.js"
+    "umr": "dist/index.js"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm",
@@ -30,7 +30,12 @@
     "type": "git",
     "url": "git+https://github.com/EvanZhouDev/umr.git"
   },
-  "keywords": ["ai", "local", "model", "llm"],
+  "keywords": [
+    "ai",
+    "local",
+    "model",
+    "llm"
+  ],
   "author": "EvanZhouDev",
   "license": "AGPL-3.0-only",
   "bugs": {
