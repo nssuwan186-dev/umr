@@ -177,3 +177,29 @@ test("lmstudio can be linked again after stale cleanup removes the UMR link", as
   expect(String(second.state.userRepo)).not.toBe(String(first.state.userRepo));
   expect(String(second.state.userRepo)).toContain(added.model.ref.slice(2, 10));
 });
+
+test("lmstudio link fails cleanly when LM Studio is not installed", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-lms-missing-"));
+  const sourcePath = path.join(dir, "tiny.gguf");
+  await createTestGGUF(sourcePath);
+
+  const runner: CommandRunner = {
+    async commandExists(): Promise<boolean> {
+      return false;
+    },
+    async run() {
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    },
+    async runStreaming() {
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    },
+  };
+
+  const umr = createVMR(dir, path.join(dir, "missing-models"), runner);
+  const added = await umr.addSource("path", { path: sourcePath });
+
+  await expect(umr.link("lmstudio", added.model.ref)).rejects.toHaveProperty(
+    "message",
+    "LM Studio does not appear to be installed. Install LM Studio and make sure the `lms` CLI is available, then try linking again.",
+  );
+});

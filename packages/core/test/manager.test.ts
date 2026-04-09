@@ -233,3 +233,18 @@ test("hf-style imports derive the model name from the selected filename", async 
 
   expect(added.model.name).toBe("gemma-4-e2b-it-q8-0");
 });
+
+test("add path fails cleanly for non-GGUF files", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-non-gguf-"));
+  const sourcePath = path.join(dir, "model.safetensors");
+  await Bun.write(sourcePath, "not gguf");
+
+  const umr = createVMR(path.join(dir, "home"));
+
+  await expect(
+    umr.addSource("path", { path: sourcePath }),
+  ).rejects.toHaveProperty(
+    "message",
+    "UMR currently supports GGUF models only. Support for other model formats is coming soon.",
+  );
+});

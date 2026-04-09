@@ -37,9 +37,9 @@ function getEntryMember(model: ModelRecord): ModelManifestMember | null {
 function assertGGUFEntry(model: ModelRecord): void {
   if (!model.entryFilename.toLowerCase().endsWith(".gguf")) {
     throw new ManagerError(
-      `Jan only supports GGUF entry files right now: ${model.entryFilename}`,
+      "UMR currently supports GGUF models only. Support for other model formats is coming soon.",
       {
-        code: "jan-non-gguf-entry",
+        code: "unsupported-model-format",
         exitCode: 2,
       },
     );
@@ -127,12 +127,8 @@ export class JanRegistrarAdapter implements RegistrarAdapter {
       }
     }
 
-    if (defaultPath) {
-      return defaultPath;
-    }
-
     throw new ManagerError(
-      "Unable to resolve Jan data directory; set UMR_JAN_DATA_DIR",
+      "Jan does not appear to be installed. Install Jan or set UMR_JAN_DATA_DIR, then try linking again.",
       {
         code: "jan-data-dir",
         exitCode: 2,

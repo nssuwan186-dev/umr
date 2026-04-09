@@ -11,6 +11,9 @@ export interface PathSourceInput {
   path: string;
 }
 
+const NON_GGUF_MESSAGE =
+  "UMR currently supports GGUF models only. Support for other model formats is coming soon.";
+
 export class PathSourceAdapter implements SourceAdapter<PathSourceInput> {
   kind(): string {
     return "path";
@@ -43,15 +46,15 @@ export class PathSourceAdapter implements SourceAdapter<PathSourceInput> {
 
     const details = await stat(localPath);
     if (details.isDirectory()) {
-      throw new ManagerError(`Unsupported local model path: ${localPath}`, {
-        code: "unsupported-local-model-path",
+      throw new ManagerError(NON_GGUF_MESSAGE, {
+        code: "unsupported-model-format",
         exitCode: 2,
       });
     }
 
     if (!localPath.toLowerCase().endsWith(".gguf")) {
-      throw new ManagerError(`Unsupported local model path: ${localPath}`, {
-        code: "unsupported-local-model-path",
+      throw new ManagerError(NON_GGUF_MESSAGE, {
+        code: "unsupported-model-format",
         exitCode: 2,
       });
     }

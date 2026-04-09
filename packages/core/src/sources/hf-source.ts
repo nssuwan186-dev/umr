@@ -37,6 +37,9 @@ interface HFModelInfo {
   cachedSiblings: string[];
 }
 
+const NON_GGUF_REPO_MESSAGE =
+  "This repo does not contain any GGUF files. UMR currently supports GGUF models only. Support for other model formats is coming soon.";
+
 function formatGGUFFiles(files: string[]): string {
   return files.map((file) => `  - ${file}`).join("\n");
 }
@@ -139,8 +142,8 @@ print(json.dumps({
     const ggufFiles = ggufSiblings.map((sibling) => sibling.rfilename);
 
     if (ggufFiles.length === 0) {
-      throw new ManagerError(`No GGUF files found in ${input.repo}`, {
-        code: "hf-no-gguf-files",
+      throw new ManagerError(NON_GGUF_REPO_MESSAGE, {
+        code: "unsupported-model-format",
         exitCode: 2,
       });
     }
@@ -177,7 +180,7 @@ print(json.dumps({
 
         throw new ManagerError(
           ggufFiles.length === 0
-            ? `No GGUF files found in ${input.repo}`
+            ? NON_GGUF_REPO_MESSAGE
             : `Multiple GGUF files found in ${input.repo}; pass --file explicitly:\n${formatGGUFFiles(ggufFiles)}`,
           {
             code: "hf-file-required",

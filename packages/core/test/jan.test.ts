@@ -79,3 +79,33 @@ test("jan unlink removes only Jan-managed metadata", async () => {
   expect(await Bun.file(configPath).exists()).toBeFalse();
   expect(await Bun.file(added.model.entryPath).exists()).toBeTrue();
 });
+
+test("jan link fails cleanly when Jan is not installed", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "umr-jan-missing-"));
+  const sourcePath = path.join(dir, "tiny.gguf");
+  await createTestGGUF(sourcePath);
+
+  const dataPaths = resolveDataPaths({
+    UMR_HOME: path.join(dir, "home"),
+  });
+  const sourceAdapters = new SourceAdapterRegistry();
+  sourceAdapters.register(new PathSourceAdapter());
+  const registrarAdapters = new RegistrarAdapterRegistry();
+  registrarAdapters.register(
+    new JanRegistrarAdapter({
+      HOME: dir,
+    }),
+  );
+
+  const umr = new UnifiedModelRegistry({
+    dataPaths,
+    sourceAdapters,
+    registrarAdapters,
+  });
+  const added = await umr.addSource("path", { path: sourcePath });
+
+  await expect(umr.link("jan", added.model.ref)).rejects.toHaveProperty(
+    "message",
+    "Jan does not appear to be installed. Install Jan or set UMR_JAN_DATA_DIR, then try linking again.",
+  );
+});

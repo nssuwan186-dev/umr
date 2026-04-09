@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { ManagerError } from "../errors";
 import { ensureDir, removeFileIfExists, writeTextFile } from "../fs";
 import { deriveOllamaName } from "../naming";
 import type { DataPaths } from "../paths";
@@ -17,8 +18,12 @@ import type {
 
 function assertGGUFEntry(model: ModelRecord): void {
   if (!model.entryFilename.toLowerCase().endsWith(".gguf")) {
-    throw new Error(
-      `Ollama only supports GGUF entry files right now: ${model.entryFilename}`,
+    throw new ManagerError(
+      "UMR currently supports GGUF models only. Support for other model formats is coming soon.",
+      {
+        code: "unsupported-model-format",
+        exitCode: 2,
+      },
     );
   }
 }
@@ -38,6 +43,15 @@ export class OllamaRegistrarAdapter implements RegistrarAdapter {
     context?: OperationContext,
   ): Promise<RegistrationResult> {
     assertGGUFEntry(model);
+    if (!(await this.runner.commandExists("ollama"))) {
+      throw new ManagerError(
+        "Ollama does not appear to be installed. Install Ollama, then try linking again.",
+        {
+          code: "missing-ollama-cli",
+          exitCode: 2,
+        },
+      );
+    }
     await ensureDir(path.join(this.dataPaths.adaptersTmpDir, "ollama"));
     const name = deriveOllamaName(model.name, model.ref);
     const modelfilePath = path.join(

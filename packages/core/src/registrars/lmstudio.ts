@@ -54,9 +54,9 @@ function getEntryMember(model: ModelRecord): ModelManifestMember | null {
 function assertGGUFEntry(model: ModelRecord): void {
   if (!model.entryFilename.toLowerCase().endsWith(".gguf")) {
     throw new ManagerError(
-      `LM Studio only supports GGUF entry files right now: ${model.entryFilename}`,
+      "UMR currently supports GGUF models only. Support for other model formats is coming soon.",
       {
-        code: "lmstudio-non-gguf-entry",
+        code: "unsupported-model-format",
         exitCode: 2,
       },
     );
@@ -93,7 +93,7 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
     }
 
     throw new ManagerError(
-      "Unable to locate LM Studio models directory; set UMR_LMSTUDIO_MODELS_DIR",
+      "LM Studio does not appear to be installed or initialized. Open LM Studio once, or set UMR_LMSTUDIO_MODELS_DIR, then try linking again.",
       {
         code: "lmstudio-models-dir",
         exitCode: 2,
@@ -118,10 +118,13 @@ export class LMStudioRegistrarAdapter implements RegistrarAdapter {
       }
     }
 
-    throw new ManagerError("LM Studio CLI was not found", {
-      code: "missing-lms-cli",
-      exitCode: 2,
-    });
+    throw new ManagerError(
+      "LM Studio does not appear to be installed. Install LM Studio and make sure the `lms` CLI is available, then try linking again.",
+      {
+        code: "missing-lms-cli",
+        exitCode: 2,
+      },
+    );
   }
 
   private getTargetPath(userRepo: string, model: ModelRecord): string {
