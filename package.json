@@ -1,5 +1,6 @@
 {
   "name": "umr-workspace",
+  "description": "The Unified Model Registry for your local AI apps",
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.3.2",
@@ -14,8 +15,16 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "workspaces": ["apps/*", "packages/*"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EvanZhouDev/umr.git"
+  },
+  "keywords": ["ai", "local", "model", "llm"],
+  "author": "EvanZhouDev",
+  "license": "AGPL-3.0-only",
+  "bugs": {
+    "url": "https://github.com/EvanZhouDev/umr/issues"
+  },
+  "homepage": "https://github.com/EvanZhouDev/umr#readme"
 }

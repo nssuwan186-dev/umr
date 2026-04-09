@@ -1,5 +1,6 @@
 {
   "name": "umr-ai",
+  "description": "The Unified Model Registry for your local AI apps",
   "version": "0.1.0",
   "type": "module",
   "bin": {
@@ -17,5 +18,16 @@
     "cli-progress": "^3.12.0",
     "commander": "^14.0.3",
     "picocolors": "^1.1.1"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EvanZhouDev/umr.git"
+  },
+  "keywords": ["ai", "local", "model", "llm"],
+  "author": "EvanZhouDev",
+  "license": "AGPL-3.0-only",
+  "bugs": {
+    "url": "https://github.com/EvanZhouDev/umr/issues"
+  },
+  "homepage": "https://github.com/EvanZhouDev/umr#readme"
 }
