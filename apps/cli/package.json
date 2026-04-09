@@ -3,21 +3,28 @@
   "description": "The Unified Model Registry for your local AI apps",
   "version": "0.1.0",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
-    "umr": "./src/index.ts"
+    "umr": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm",
     "lint": "biome check src",
+    "prepack": "bun run build",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
-    "@umr/core": "workspace:*",
     "cli-progress": "^3.12.0",
     "commander": "^14.0.3",
     "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@umr/core": "workspace:*"
   },
   "repository": {
     "type": "git",

@@ -3,3 +3,4 @@ bun.lockb
 .turbo
 coverage
 .DS_Store
+apps/cli/dist
