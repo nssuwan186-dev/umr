@@ -16,7 +16,7 @@ That means you can:
 Install UMR via NPM or your JS package manager of choice.
 
 ```
-npm i -g umr-ai
+npm i -g umr-cli
 ```
 
 The `umr` CLI will be available after installation.

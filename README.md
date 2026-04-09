@@ -20,11 +20,11 @@
   &nbsp;·&nbsp;
   <a href="#docs">Docs</a>
   &nbsp;·&nbsp;
-  <a href="https://www.npmjs.com/package/umr-ai">NPM</a>
+  <a href="https://www.npmjs.com/package/umr-cli">NPM</a>
 </p>
 
 ```
-npm i -g umr-ai
+npm i -g umr-cli
 ```
 
 # What is UMR?
@@ -45,7 +45,7 @@ That means you can:
 Install UMR via NPM or your JS package manager of choice.
 
 ```
-npm i -g umr-ai
+npm i -g umr-cli
 ```
 
 The `umr` CLI will be available after installation.

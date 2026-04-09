@@ -1,5 +1,5 @@
 {
-  "name": "umr-ai",
+  "name": "umr-cli",
   "description": "The Unified Model Registry for your local AI apps",
   "version": "0.1.0",
   "type": "module",
